@@ -33,6 +33,8 @@ from ds_common_logger_py_lib import Logger
 from ds_protocol_http_py_lib import HttpLinkedServiceSettings, enums
 from ds_resource_plugin_py_lib.common.resource.linked_service import LinkedService
 
+from ..enums import ResourceType
+
 logger = Logger.get_logger(__name__, package=True)
 
 # -------------------------------
@@ -99,6 +101,16 @@ class SimployerLinkedService(
         """
         if not isinstance(self.settings, SimployerLinkedServiceSettings):
             raise AttributeError("Settings not set correctly.")
+
+    @property
+    def type(self) -> ResourceType:
+        """
+        Get the type of the linked service.
+
+        Returns:
+             ResourceType
+        """
+        return ResourceType.SIMPLOYER_LINKED_SERVICE
 
     @property
     def session(self) -> requests.Session:
