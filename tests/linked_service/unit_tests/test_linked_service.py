@@ -177,4 +177,4 @@ def test_validate_settings_type_error():
     service = make_service()
     service.settings = object()  # Not SimployerLinkedServiceSettings
     with pytest.raises(AttributeError, match="Settings not set correctly\\."):
-        service._validate_settings()
+        service._validate_settings()  # type: ignore[attr-defined]
