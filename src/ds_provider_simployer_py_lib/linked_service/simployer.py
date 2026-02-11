@@ -53,7 +53,8 @@ class SimployerLinkedServiceSettings(HttpLinkedServiceSettings):
         auth_url: OAuth2 token endpoint (default: https://simplauth.simployer.com/oauth/token)
         audience: OAuth2 audience identifier (default: https://hrconnect.simployer.com)
         api_version: API version to use (default: v1)
-        base_url: API base URL (default: https://hrconnect.simployer.com)
+        host: API host URL (default: https://hrconnect.simployer.com)
+        timeout_seconds: Request timeout in seconds for API calls (default: 30)
     """
 
     client_id: str
@@ -61,7 +62,8 @@ class SimployerLinkedServiceSettings(HttpLinkedServiceSettings):
     auth_url: str = "https://simplauth.simployer.com/oauth/token"
     audience: str = "https://hrconnect.simployer.com"
     api_version: str = "v1"
-    base_url: str = "https://hrconnect.simployer.com"
+    host: str = "https://hrconnect.simployer.com"
+    timeout_seconds: int = 30
     auth_type = enums.AuthType.OAUTH2
 
 
@@ -89,9 +91,9 @@ class SimployerLinkedService(
     _access_token: str | None = field(default=None, init=False, repr=False)
     _session: requests.Session | None = field(default=None, init=False, repr=False)
 
-    def check_settings_is_set(self) -> None:
+    def _validate_settings(self) -> None:
         """
-        Check if settings are set correctly.
+        Validate that settings are configured correctly.
 
         Returns:
             None
@@ -123,7 +125,7 @@ class SimployerLinkedService(
         Raises:
             ConnectionError: If not connected or session is unavailable.
         """
-        if not self._session:
+        if self._session is None:
             raise ConnectionError("Not connected. Call connect() first.")
         return self._session
 
@@ -137,14 +139,14 @@ class SimployerLinkedService(
         Raises:
             ConnectionError: If required settings are missing or authentication fails
         """
-        self.check_settings_is_set()
+        self._validate_settings()
 
         if not self.settings.client_id:
             raise ConnectionError("Client ID is missing")
         if not self.settings.client_secret:
             raise ConnectionError("Client secret is missing")
-        if not self.settings.base_url:
-            raise ConnectionError("Base URL is missing")
+        if not self.settings.host:
+            raise ConnectionError("Host URL is missing")
 
         # Obtain access token
         self._access_token = self._get_access_token()
@@ -188,7 +190,7 @@ class SimployerLinkedService(
 
     def _get_access_token(self) -> str:
         """
-        Obtain an OAuth2 access token using client credentials .
+        Obtain an OAuth2 access token using client credentials.
 
         Returns:
             str: The access token for API authentication.
@@ -206,11 +208,17 @@ class SimployerLinkedService(
                     "grant_type": "client_credentials",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=30,
+                timeout=self.settings.timeout_seconds,
             )
             response.raise_for_status()
 
-            token_data: dict[str, Any] = response.json()
+            try:
+                token_data: dict[str, Any] = response.json()
+            except ValueError as exc:
+                content_type = response.headers.get("Content-Type", "")
+                raise ConnectionError(
+                    f"Invalid authentication response: expected JSON body but received content type '{content_type or 'unknown'}'."
+                ) from exc
             access_token = token_data.get("access_token")
 
             if not access_token:
