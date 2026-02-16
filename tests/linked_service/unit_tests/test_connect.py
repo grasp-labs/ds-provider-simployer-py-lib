@@ -1,6 +1,6 @@
 """
 **File:** ``test_connect.py``
-**Region:** ``tests/unit_tests``
+**Region:** ``tests/linked_service/unit_tests``
 
 Description
 -----------
