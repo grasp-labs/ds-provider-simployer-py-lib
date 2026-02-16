@@ -11,6 +11,7 @@ Example:
     >>> from uuid import uuid4
     >>> linked_service = SimployerLinkedService(
     ...     settings=SimployerLinkedServiceSettings(
+    ...         auth_type="OAUTH2",
     ...         client_id="your_client_id",
     ...         client_secret="your_client_secret",
     ...     ),
@@ -19,8 +20,14 @@ Example:
     ...     version="1.0.0",
     ...     description="Simployer API connection"
     ... )
-    >>> linked_service.connect()
+    >>> # For testing credentials
     >>> success, message = linked_service.test_connection()
+    >>> # For actual usage with persistent connection
+    >>> linked_service.connect()
+    >>> try:
+    ...     session = linked_service.session  # Use session for API calls
+    ... finally:
+    ...     linked_service.close()
 """
 
 from __future__ import annotations
@@ -58,7 +65,7 @@ class SimployerLinkedServiceSettings(HttpLinkedServiceSettings):
     """
 
     client_id: str
-    client_secret: str
+    client_secret: str = field(repr=False)
     auth_url: str = "https://simplauth.simployer.com/oauth/token"
     audience: str = "https://hrconnect.simployer.com"
     api_version: str = "v1"
@@ -169,17 +176,24 @@ class SimployerLinkedService(
         """
         Test the connection to Simployer by authenticating and obtaining a token.
 
+        This method creates a temporary connection for testing purposes. If the service
+        was already connected before calling this method, the existing connection is
+        preserved. If not connected, any temporary connection created during the test
+        is cleaned up before returning.
+
         Returns:
             tuple[bool, str]: A tuple containing a boolean indicating success and a message.
         """
+        was_connected = self._session is not None
         try:
             self.connect()
             return True, "Connection successfully tested"
         except ConnectionError as exc:
             return False, str(exc)
         finally:
-            # Clean up temporary session from test
-            self.close()
+            # Only close if we weren't already connected (i.e., this test created a temporary connection)
+            if not was_connected:
+                self.close()
 
     def close(self) -> None:
         """

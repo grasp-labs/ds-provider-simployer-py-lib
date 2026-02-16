@@ -22,7 +22,7 @@ from ds_provider_simployer_py_lib.linked_service.simployer import (
     SimployerLinkedServiceSettings,
 )
 
-logger = Logger.get_logger(__name__, package=True)
+logger = Logger.get_logger(__name__, package=False)
 
 
 def main() -> None:
@@ -32,7 +32,7 @@ def main() -> None:
         name="Simployer Linked Service",
         version="1.0.0",
         settings=SimployerLinkedServiceSettings(
-            auth_type="oauth2",
+            auth_type="OAUTH2",
             host="https://api.simployer.com",
             client_id="your_client_id",
             client_secret="your_client_secret",
@@ -48,13 +48,15 @@ def main() -> None:
         if success:
             logger.debug("Connection test successful: %s", message)
         else:
-            raise ResourceException(message=message)
-    except ResourceException as exc:
-        logger.error("Failed to connect to Simployer: %s", exc.message)
+            logger.error("Connection test failed: %s", message)
+    except ConnectionError as exc:
+        logger.error("Failed to connect to Simployer: %s", exc)
         raise
     except Exception as exc:
         logger.error("Unexpected error: %s", exc)
         raise
+    finally:
+        linked_service.close()
 
 
 if __name__ == "__main__":
