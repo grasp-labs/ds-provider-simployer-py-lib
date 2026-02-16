@@ -176,17 +176,24 @@ class SimployerLinkedService(
         """
         Test the connection to Simployer by authenticating and obtaining a token.
 
+        This method creates a temporary connection for testing purposes. If the service
+        was already connected before calling this method, the existing connection is
+        preserved. If not connected, any temporary connection created during the test
+        is cleaned up before returning.
+
         Returns:
             tuple[bool, str]: A tuple containing a boolean indicating success and a message.
         """
+        was_connected = self._session is not None
         try:
             self.connect()
             return True, "Connection successfully tested"
         except ConnectionError as exc:
             return False, str(exc)
         finally:
-            # Clean up temporary session from test
-            self.close()
+            # Only close if we weren't already connected (i.e., this test created a temporary connection)
+            if not was_connected:
+                self.close()
 
     def close(self) -> None:
         """

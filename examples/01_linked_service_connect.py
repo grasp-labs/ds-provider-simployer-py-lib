@@ -48,13 +48,15 @@ def main() -> None:
         if success:
             logger.debug("Connection test successful: %s", message)
         else:
-            raise ResourceException(message=message)
-    except ResourceException as exc:
-        logger.error("Failed to connect to Simployer: %s", exc.message)
+            logger.error("Connection test failed: %s", message)
+    except ConnectionError as exc:
+        logger.error("Failed to connect to Simployer: %s", exc)
         raise
     except Exception as exc:
         logger.error("Unexpected error: %s", exc)
         raise
+    finally:
+        linked_service.close()
 
 
 if __name__ == "__main__":
