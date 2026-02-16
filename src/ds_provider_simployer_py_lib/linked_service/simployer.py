@@ -139,6 +139,9 @@ class SimployerLinkedService(
         Raises:
             ConnectionError: If required settings are missing or authentication fails
         """
+        # Close any existing session to prevent resource leaks
+        self.close()
+
         self._validate_settings()
 
         if not self.settings.client_id:
@@ -174,6 +177,9 @@ class SimployerLinkedService(
             return True, "Connection successfully tested"
         except ConnectionError as exc:
             return False, str(exc)
+        finally:
+            # Clean up temporary session from test
+            self.close()
 
     def close(self) -> None:
         """

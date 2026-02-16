@@ -12,6 +12,8 @@ This example demonstrates how to:
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from ds_common_logger_py_lib import Logger
 from ds_resource_plugin_py_lib.common.resource.errors import ResourceException
 
@@ -26,9 +28,9 @@ logger = Logger.get_logger(__name__, package=True)
 def main() -> None:
     """Main function demonstrating Simployer linked service connection."""
     linked_service = SimployerLinkedService(
-        id="simployer_linked_service",
+        id=uuid4(),
         name="Simployer Linked Service",
-        version="1.0",
+        version="1.0.0",
         settings=SimployerLinkedServiceSettings(
             auth_type="oauth2",
             host="https://api.simployer.com",
