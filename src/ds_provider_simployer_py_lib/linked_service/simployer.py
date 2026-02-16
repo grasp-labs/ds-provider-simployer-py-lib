@@ -11,7 +11,7 @@ Example:
     >>> from uuid import uuid4
     >>> linked_service = SimployerLinkedService(
     ...     settings=SimployerLinkedServiceSettings(
-    ...         auth_type="oauth2",
+    ...         auth_type="OAUTH2",
     ...         client_id="your_client_id",
     ...         client_secret="your_client_secret",
     ...     ),
@@ -20,8 +20,14 @@ Example:
     ...     version="1.0.0",
     ...     description="Simployer API connection"
     ... )
-    >>> linked_service.connect()
+    >>> # For testing credentials
     >>> success, message = linked_service.test_connection()
+    >>> # For actual usage with persistent connection
+    >>> linked_service.connect()
+    >>> try:
+    ...     session = linked_service.session  # Use session for API calls
+    ... finally:
+    ...     linked_service.close()
 """
 
 from __future__ import annotations
@@ -59,7 +65,7 @@ class SimployerLinkedServiceSettings(HttpLinkedServiceSettings):
     """
 
     client_id: str
-    client_secret: str
+    client_secret: str = field(repr=False)
     auth_url: str = "https://simplauth.simployer.com/oauth/token"
     audience: str = "https://hrconnect.simployer.com"
     api_version: str = "v1"

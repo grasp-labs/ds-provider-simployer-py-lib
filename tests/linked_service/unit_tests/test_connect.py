@@ -38,7 +38,7 @@ def test_connect_success(mock_post, mock_session):
     mock_session.return_value = mock_session_instance
 
     settings = SimployerLinkedServiceSettings(
-        client_id="id", client_secret="secret", host="https://example.com", auth_type="oauth2"
+        client_id="id", client_secret="secret", host="https://example.com", auth_type="OAUTH2"
     )
     service = SimployerLinkedService(settings=settings, id=uuid4(), name="test", version="1.0.0", description="desc")
 
@@ -63,7 +63,7 @@ def test_connect_token_failure(mock_post):
     mock_post.return_value = mock_response
 
     settings = SimployerLinkedServiceSettings(
-        client_id="id", client_secret="secret", host="https://example.com", auth_type="oauth2"
+        client_id="id", client_secret="secret", host="https://example.com", auth_type="OAUTH2"
     )
     service = SimployerLinkedService(settings=settings, id=uuid4(), name="test", version="1.0.0", description="desc")
 
