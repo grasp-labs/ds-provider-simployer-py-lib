@@ -15,7 +15,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 from ds_common_logger_py_lib import Logger
-from ds_resource_plugin_py_lib.common.resource.errors import ResourceException
 
 from ds_provider_simployer_py_lib.linked_service.simployer import (
     SimployerLinkedService,

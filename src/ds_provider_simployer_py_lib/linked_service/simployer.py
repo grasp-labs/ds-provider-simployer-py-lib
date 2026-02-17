@@ -95,8 +95,8 @@ class SimployerLinkedService(
     """
 
     settings: SimployerLinkedServiceSettingsType
-    _access_token: str | None = field(default=None, init=False, repr=False)
-    _session: requests.Session | None = field(default=None, init=False, repr=False)
+    _access_token: str | None = field(default=None, init=False, repr=False, metadata={"serialize": False})
+    _session: requests.Session | None = field(default=None, init=False, repr=False, metadata={"serialize": False})
 
     def _validate_settings(self) -> None:
         """
@@ -109,7 +109,9 @@ class SimployerLinkedService(
             AttributeError: If settings are not set correctly.
         """
         if not isinstance(self.settings, SimployerLinkedServiceSettings):
-            raise AttributeError("Settings not set correctly.")
+            raise AttributeError(
+                f"Invalid settings type: expected SimployerLinkedServiceSettings, got {type(self.settings).__name__}."
+            )
 
     @property
     def type(self) -> ResourceType:
@@ -135,6 +137,16 @@ class SimployerLinkedService(
         if self._session is None:
             raise ConnectionError("Not connected. Call connect() first.")
         return self._session
+
+    @property
+    def is_connected(self) -> bool:
+        """
+        Check if the service is currently connected.
+
+        Returns:
+            bool: True if connected with valid session and token, False otherwise.
+        """
+        return self._session is not None and self._access_token is not None
 
     def connect(self) -> None:
         """
@@ -174,26 +186,52 @@ class SimployerLinkedService(
 
     def test_connection(self) -> tuple[bool, str]:
         """
-        Test the connection to Simployer by authenticating and obtaining a token.
+        Test the connection to Simployer by validating credentials.
 
-        This method creates a temporary connection for testing purposes. If the service
-        was already connected before calling this method, the existing connection is
-        preserved. If not connected, any temporary connection created during the test
-        is cleaned up before returning.
+        This method uses different strategies based on connection state:
+        - If already connected: Validates the current token with a lightweight API call
+        - If not connected: Tests credentials by obtaining a new token
+
+        This approach avoids unnecessary token generation when already connected
+        while still validating that the connection is valid.
 
         Returns:
             tuple[bool, str]: A tuple containing a boolean indicating success and a message.
         """
-        was_connected = self._session is not None
+        if self.is_connected:
+            # Optimize: validate existing token with lightweight API call
+            if self._validate_token():
+                return True, "Connection successfully tested"
+            # Fall back to full connect test if validation fails
+            logger.debug("Token validation failed, retesting with full authentication")
+
+        # Test credentials by obtaining a fresh token
         try:
             self.connect()
             return True, "Connection successfully tested"
         except ConnectionError as exc:
             return False, str(exc)
-        finally:
-            # Only close if we weren't already connected (i.e., this test created a temporary connection)
-            if not was_connected:
-                self.close()
+
+    def _validate_token(self) -> bool:
+        """
+        Validate that the current token is still valid with a lightweight API call.
+
+        Makes a HEAD request to the API host to verify the token works without
+        consuming bandwidth for a full response.
+
+        Returns:
+            bool: True if token is valid, False otherwise.
+        """
+        try:
+            # Use a lightweight HEAD request to check if token is valid
+            url = f"{self.settings.host}/api/{self.settings.api_version}/"
+            response = self.session.head(url, timeout=self.settings.timeout_seconds)
+            response.raise_for_status()
+            logger.debug("Token validation successful")
+            return True
+        except (requests.RequestException, ConnectionError) as exc:
+            logger.debug(f"Token validation failed: {exc}")
+            return False
 
     def close(self) -> None:
         """
