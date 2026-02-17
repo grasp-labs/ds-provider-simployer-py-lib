@@ -71,7 +71,7 @@ class SimployerLinkedServiceSettings(HttpLinkedServiceSettings):
     api_version: str = "v1"
     host: str = "https://hrconnect.simployer.com"
     timeout_seconds: int = 30
-    auth_type = enums.AuthType.OAUTH2
+    auth_type: enums.AuthType = enums.AuthType.OAUTH2
 
 
 SimployerLinkedServiceSettingsType = TypeVar(
