@@ -89,14 +89,32 @@ def test_connect_network_failure(mock_post):
         service.connect()
 
 
-def test_close_clears_session_and_token():
+@patch("ds_provider_simployer_py_lib.linked_service.simployer.requests.Session")
+@patch("ds_provider_simployer_py_lib.linked_service.simployer.requests.post")
+def test_close_clears_session_and_token(mock_post, mock_session):
     """Test that close clears session and access token."""
+    # Setup a connected service
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"access_token": "token"}
+    mock_response.raise_for_status.return_value = None
+    mock_post.return_value = mock_response
+    mock_session_instance = MagicMock()
+    mock_session.return_value = mock_session_instance
+
     service = make_service()
-    service._session = MagicMock()
-    service._access_token = "token"
+    service.connect()
+
+    # Verify connected
+    assert service.is_connected is True
+
+    # Close the connection
     service.close()
-    assert service._session is None
-    assert service._access_token is None
+
+    # Verify disconnected
+    assert service.is_connected is False
+    with pytest.raises(ConnectionError, match="Not connected"):
+        _ = service.session
+    mock_session_instance.close.assert_called_once()
 
 
 def test_test_connection_success():
@@ -177,56 +195,8 @@ def test_test_connection_already_connected_invalid_token():
         assert mock_post.call_count > initial_call_count
 
 
-def test_validate_token_success():
-    """Test that _validate_token returns True on successful token validation."""
-    session_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.Session"
-    post_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.post"
-    with patch(session_patch) as mock_session, patch(post_patch) as mock_post:
-        # Setup connection
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"access_token": "token"}
-        mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
-        mock_session_instance = MagicMock()
-        mock_session.return_value = mock_session_instance
-
-        service = make_service()
-        service.connect()
-
-        # Mock successful HEAD request
-        mock_head_response = MagicMock()
-        mock_head_response.raise_for_status.return_value = None
-        mock_session_instance.head.return_value = mock_head_response
-
-        result = service._validate_token()
-
-        assert result is True
-        mock_session_instance.head.assert_called_once()
-
-
-def test_validate_token_failure():
-    """Test that _validate_token returns False on token validation failure."""
-    session_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.Session"
-    post_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.post"
-    with patch(session_patch) as mock_session, patch(post_patch) as mock_post:
-        # Setup connection
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"access_token": "token"}
-        mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
-        mock_session_instance = MagicMock()
-        mock_session.return_value = mock_session_instance
-
-        service = make_service()
-        service.connect()
-
-        # Mock failed HEAD request
-        mock_session_instance.head.side_effect = requests.RequestException("Unauthorized")
-
-        result = service._validate_token()
-
-        assert result is False
-        mock_session_instance.head.assert_called_once()
+# Token validation is tested indirectly through test_test_connection_already_connected_valid_token
+# and test_test_connection_already_connected_invalid_token tests above
 
 
 @patch("ds_provider_simployer_py_lib.linked_service.simployer.requests.Session")
@@ -286,8 +256,8 @@ def test_test_connection_error_path():
 
 
 def test_validate_settings_type_error():
-    """Test that _validate_settings raises error for invalid settings."""
+    """Test that connect raises error for invalid settings type."""
     service = make_service()
-    service.settings = object()  # Not SimployerLinkedServiceSettings
+    service.settings = object()  # type: ignore[assignment] - Not SimployerLinkedServiceSettings
     with pytest.raises(AttributeError, match="Invalid settings type: expected SimployerLinkedServiceSettings"):
-        service._validate_settings()  # type: ignore[attr-defined]
+        service.connect()  # _validate_settings is called internally
