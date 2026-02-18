@@ -32,7 +32,7 @@ def main() -> None:
         version="1.0.0",
         settings=SimployerLinkedServiceSettings(
             auth_type="OAUTH2",
-            host="https://api.simployer.com",
+            host="https://hrconnect.simployer.com",
             client_id="your_client_id",
             client_secret="your_client_secret",
         ),

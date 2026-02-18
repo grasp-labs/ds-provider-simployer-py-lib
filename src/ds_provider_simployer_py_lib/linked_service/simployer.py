@@ -170,14 +170,11 @@ class SimployerLinkedService(
         if not self.settings.host:
             raise ConnectionError("Host URL is missing")
 
-        # Obtain access token
-        self._access_token = self._get_access_token()
-
-        # Create authenticated session
+        # Create authenticated session with access token
         self._session = requests.Session()
         self._session.headers.update(
             {
-                "Authorization": f"Bearer {self._access_token}",
+                "Authorization": f"Bearer {self._get_access_token()}",
                 "Content-Type": "application/json",
             }
         )
@@ -188,29 +185,22 @@ class SimployerLinkedService(
         """
         Test the connection to Simployer by validating credentials.
 
-        This method uses different strategies based on connection state:
-        - If already connected: Validates the current token with a lightweight API call
-        - If not connected: Tests credentials by obtaining a new token
-
-        This approach avoids unnecessary token generation when already connected
-        while still validating that the connection is valid.
+        This method assumes a connection is already established via connect()
+        and validates the current token with a lightweight API call.
 
         Returns:
             tuple[bool, str]: A tuple containing a boolean indicating success and a message.
-        """
-        if self.is_connected:
-            # Optimize: validate existing token with lightweight API call
-            if self._validate_token():
-                return True, "Connection successfully tested"
-            # Fall back to full connect test if validation fails
-            logger.debug("Token validation failed, retesting with full authentication")
 
-        # Test credentials by obtaining a fresh token
-        try:
-            self.connect()
-            return True, "Connection successfully tested"
-        except ConnectionError as exc:
-            return False, str(exc)
+        Raises:
+            ConnectionError: If not connected or validation fails.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected. Call connect() first.")
+
+        if not self._validate_token():
+            raise ConnectionError("Token validation failed.")
+
+        return True, "Connection successfully tested"
 
     def _validate_token(self) -> bool:
         """
@@ -230,7 +220,7 @@ class SimployerLinkedService(
             logger.debug("Token validation successful")
             return True
         except (requests.RequestException, ConnectionError) as exc:
-            logger.debug(f"Token validation failed: {exc}")
+            logger.debug("Token validation failed: %s", exc)
             return False
 
     def close(self) -> None:
@@ -240,11 +230,13 @@ class SimployerLinkedService(
         Returns:
             None
         """
-        if self._session:
-            self._session.close()
-        self._session = None
-        self._access_token = None
-        logger.debug("Simployer LinkedService closed.")
+        try:
+            if self._session:
+                self._session.close()
+        finally:
+            self._session = None
+            self._access_token = None
+            logger.debug("Simployer LinkedService closed.")
 
     def _get_access_token(self) -> str:
         """
@@ -285,4 +277,5 @@ class SimployerLinkedService(
             return str(access_token)
 
         except requests.RequestException as exc:
-            raise ConnectionError(f"Failed to obtain access token: {exc}") from exc
+            logger.debug("Failed to obtain access token: %s", exc)
+            raise ConnectionError("Failed to obtain access token. Please check your credentials and try again.") from exc

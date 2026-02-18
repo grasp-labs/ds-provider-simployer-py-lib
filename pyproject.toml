@@ -40,6 +40,9 @@ Repository = "https://github.com/grasp-labs/ds-provider-simployer-py-lib/"
 Issues = "https://github.com/grasp-labs/ds-provider-simployer-py-lib/issues/"
 Changelog = "https://github.com/grasp-labs/ds-provider-simployer-py-lib/releases"
 
+[project.entry-points."ds.providers"]
+simployer = "ds_provider_simployer_py_lib"
+
 [project.optional-dependencies]
 dev = [
     "ruff>=0.1.8",
