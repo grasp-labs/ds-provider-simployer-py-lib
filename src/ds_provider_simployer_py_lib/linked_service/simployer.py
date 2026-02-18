@@ -144,9 +144,9 @@ class SimployerLinkedService(
         Check if the service is currently connected.
 
         Returns:
-            bool: True if connected with valid session and token, False otherwise.
+            bool: True if connected with valid session, False otherwise.
         """
-        return self._session is not None and self._access_token is not None
+        return self._session is not None
 
     def connect(self) -> None:
         """

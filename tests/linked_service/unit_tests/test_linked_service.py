@@ -117,23 +117,6 @@ def test_close_clears_session_and_token(mock_post, mock_session):
     mock_session_instance.close.assert_called_once()
 
 
-def test_test_connection_success():
-    """Test that test_connection returns success status."""
-    session_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.Session"
-    post_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.post"
-    with patch(session_patch) as mock_session, patch(post_patch) as mock_post:
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"access_token": "token"}
-        mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
-        mock_session_instance = MagicMock()
-        mock_session.return_value = mock_session_instance
-        service = make_service()
-        success, message = service.test_connection()
-        assert success is True
-        assert message == "Connection successfully tested"
-
-
 def test_test_connection_already_connected_valid_token():
     """Test that test_connection validates existing token without reconnecting."""
     session_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.Session"
@@ -167,7 +150,7 @@ def test_test_connection_already_connected_valid_token():
 
 
 def test_test_connection_already_connected_invalid_token():
-    """Test that test_connection reconnects if token validation fails."""
+    """Test that test_connection raises error if token validation fails."""
     session_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.Session"
     post_patch = "ds_provider_simployer_py_lib.linked_service.simployer.requests.post"
     with patch(session_patch) as mock_session, patch(post_patch) as mock_post:
@@ -181,18 +164,13 @@ def test_test_connection_already_connected_invalid_token():
 
         service = make_service()
         service.connect()
-        initial_call_count = mock_post.call_count
 
         # Token validation fails
         mock_session_instance.head.side_effect = requests.RequestException("Unauthorized")
 
-        success, message = service.test_connection()
-
-        # Should fall back to reconnecting
-        assert success is True
-        assert message == "Connection successfully tested"
-        # post should be called again for reconnection
-        assert mock_post.call_count > initial_call_count
+        # Should raise ConnectionError
+        with pytest.raises(ConnectionError, match="Token validation failed"):
+            service.test_connection()
 
 
 # Token validation is tested indirectly through test_test_connection_already_connected_valid_token
@@ -242,17 +220,11 @@ def test_connect_missing_host():
         service.connect()
 
 
-def test_test_connection_error_path():
-    """Test that test_connection handles connect errors gracefully."""
+def test_test_connection_not_connected():
+    """Test that test_connection raises error if not connected."""
     service = make_service()
-
-    def fail_connect():
-        raise ConnectionError("fail connect")
-
-    service.connect = fail_connect
-    success, message = service.test_connection()
-    assert success is False
-    assert message == "fail connect"
+    with pytest.raises(ConnectionError, match="Not connected"):
+        service.test_connection()
 
 
 def test_validate_settings_type_error():
