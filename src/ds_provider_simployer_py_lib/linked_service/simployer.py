@@ -11,7 +11,6 @@ Example:
     >>> from uuid import uuid4
     >>> linked_service = SimployerLinkedService(
     ...     settings=SimployerLinkedServiceSettings(
-    ...         auth_type="OAUTH2",
     ...         client_id="your_client_id",
     ...         client_secret="your_client_secret",
     ...     ),

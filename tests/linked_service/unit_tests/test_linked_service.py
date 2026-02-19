@@ -10,7 +10,7 @@ from ds_provider_simployer_py_lib.linked_service import (
 
 def make_settings():
     """Create a SimployerLinkedServiceSettings instance for testing."""
-    return SimployerLinkedServiceSettings(client_id="id", client_secret="secret", host="https://example.com", auth_type="OAUTH2")
+    return SimployerLinkedServiceSettings(client_id="id", client_secret="secret", host="https://example.com")
 
 
 def make_service():

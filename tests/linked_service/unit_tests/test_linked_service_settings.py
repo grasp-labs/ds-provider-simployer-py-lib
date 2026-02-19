@@ -19,9 +19,7 @@ from ds_provider_simployer_py_lib.linked_service import SimployerLinkedService, 
 
 def test_settings_defaults():
     """It initializes SimployerLinkedServiceSettings with required values and checks default values."""
-    settings = SimployerLinkedServiceSettings(
-        client_id="id", client_secret="secret", host="https://example.com", auth_type="OAUTH2"
-    )
+    settings = SimployerLinkedServiceSettings(client_id="id", client_secret="secret", host="https://example.com")
     assert settings.token_endpoint == "https://simplauth.simployer.com/oauth/token"
     assert settings.audience == "https://hrconnect.simployer.com"
     assert settings.api_version == "v1"
@@ -33,9 +31,7 @@ def test_linked_service_type_property():
     """
     It exposes Simployer linked service type and settings values.
     """
-    settings = SimployerLinkedServiceSettings(
-        client_id="id", client_secret="secret", host="https://example.com", auth_type="OAUTH2"
-    )
+    settings = SimployerLinkedServiceSettings(client_id="id", client_secret="secret", host="https://example.com")
     service = SimployerLinkedService(settings=settings, id=uuid4(), name="test", version="1.0.0", description="desc")
     assert service.type.name == "SIMPLOYER_LINKED_SERVICE"
     assert service.settings.client_id == "id"
