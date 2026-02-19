@@ -1,4 +1,11 @@
-"""Unit tests for SimployerLinkedService."""
+"""
+**File:** ``test_linked_service.py``
+**Region:** ``tests/linked_service/unit_tests``
+
+Unit tests for SimployerLinkedService.
+
+This module contains unit tests for the SimployerLinkedService class and its configuration.
+"""
 
 from uuid import uuid4
 
