@@ -34,10 +34,7 @@ from ds_provider_simployer_py_lib.linked_service.simployer import (
 def mock_linked_service():
     """Create a Simployer linked service for testing."""
     settings = SimployerLinkedServiceSettings(
-        client_id="fake_test_client_id",
-        client_secret="dummy_test_client_secret",
-        host="https://api.example.com",
-        auth_type="oauth2",
+        client_id="fake_test_client_id", client_secret="dummy_test_client_secret", host="https://api.example.com"
     )
     return SimployerLinkedService(
         settings=settings,
