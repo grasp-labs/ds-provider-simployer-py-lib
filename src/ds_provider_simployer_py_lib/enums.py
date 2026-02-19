@@ -21,3 +21,15 @@ class ResourceType(StrEnum):
 
     SIMPLOYER_LINKED_SERVICE = "DS.RESOURCE.LINKED_SERVICE.SIMPLOYER"
     SIMPLOYER_DATASET = "DS.RESOURCE.DATASET.SIMPLOYER"
+
+
+class HttpMethod(StrEnum):
+    """
+    HTTP request methods.
+    """
+
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    DELETE = "DELETE"
+    PATCH = "PATCH"

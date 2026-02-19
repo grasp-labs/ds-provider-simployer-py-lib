@@ -27,7 +27,7 @@ Example:
 
 import builtins
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NoReturn, TypeVar
+from typing import Any, Generic, NoReturn, TypeVar
 
 import pandas as pd
 import requests
@@ -52,7 +52,7 @@ from ds_resource_plugin_py_lib.common.resource.linked_service.errors import (
 from ds_resource_plugin_py_lib.common.serde.deserialize import PandasDeserializer
 from ds_resource_plugin_py_lib.common.serde.serialize import PandasSerializer
 
-from ..enums import ResourceType
+from ..enums import HttpMethod, ResourceType
 from ..linked_service.simployer import SimployerLinkedService
 
 logger = Logger.get_logger(__name__, package=True)
@@ -60,13 +60,28 @@ logger = Logger.get_logger(__name__, package=True)
 
 @dataclass(kw_only=True)
 class SimployerDatasetSettings(DatasetSettings):
-    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"] = "GET"
+    """Settings for Simployer dataset."""
+
+    method: HttpMethod = HttpMethod.GET
+    """HTTP method to use for the request, e.g., GET, POST, PUT, DELETE, PATCH."""
 
     endpoint: str
+    """API endpoint to interact with, e.g., '/data'."""
+
     data: Any | None = None
+    """Data to send in the body of the request."""
+
     json: dict[str, Any] | None = None
+    """JSON data to send in the body of the request."""
+
+    files: list[Any] | None = None
+    """Files to send in the request."""
+
     params: dict[str, Any] | None = None
+    """Parameters to include in the request URL."""
+
     headers: dict[str, Any] | None = None
+    """Headers to include in the request."""
 
 
 SimployerDatasetSettingsType = TypeVar(
