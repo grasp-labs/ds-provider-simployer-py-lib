@@ -7,20 +7,27 @@ Description
 This module implements a dataset for Simployer APIs.
 
 Example:
-    >>> from uuid import uuid4
+    >>> from ds_resource_plugin_py_lib.common.resource.dataset import DatasetStorageFormatType
+    >>> from ds_resource_plugin_py_lib.common.serde.deserialize import PandasDeserializer
+    >>> from ds_resource_plugin_py_lib.common.serde.serialize import PandasSerializer
     >>> dataset = SimployerDataset(
-    ...     settings=SimployerDatasetSettings(
-    ...         linked_service_id=uuid4(),
-    ...         endpoint="/employees",
-    ...         query_params={"active": "true"},
+    ...     linked_service=SimployerLinkedService(
+    ...         settings=SimployerLinkedServiceSettings(
+    ...             host="https://api.example.com",
+    ...             client_id="your_client_id",
+    ...             client_secret="your_client_secret",
+    ...         ),
     ...     ),
-    ...     id=uuid4(),
-    ...     name="active-employees",
-    ...     version="1.0.0",
-    ...     description="Dataset of active employees from Simployer"
+    ...     settings=SimployerDatasetSettings(
+    ...         endpoint="/employees",
+                method="GET",
+    ...         params={"active": "true"},
+    ...     ),
+    ...     deserializer=PandasDeserializer(format=DatasetStorageFormatType.JSON),
+    ...     serializer=PandasSerializer(format=DatasetStorageFormatType.JSON),
     ... )
-    >>> dataset.connect()
-    >>> data = dataset.read()
+    >>> dataset.read()
+    >>> df = dataset.output
 """
 
 from .simployer import SimployerDataset, SimployerDatasetSettings

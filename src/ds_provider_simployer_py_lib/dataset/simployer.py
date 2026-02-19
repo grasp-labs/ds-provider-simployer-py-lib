@@ -163,6 +163,7 @@ class SimployerDataset(
                 url=url,
                 data=self.settings.data,
                 json=self.settings.json,
+                files=self.settings.files,
                 params=self.settings.params,
                 headers=request_headers if request_headers else None,
                 timeout=self.linked_service.settings.timeout_seconds or 30,
