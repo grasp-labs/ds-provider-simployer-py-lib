@@ -8,7 +8,7 @@ Integration Tests for Simployer Linked Service
 Description
 -----------
 Integration tests that verify the SimployerLinkedService can connect to and interact with
-a real Simployer API instance using OAuth2 client credentials.
+a real Simployer API instance using client credentials.
 These tests are inherited from HttpLinkedService and focus on testing the Simployer-specific configuration.
 
 Prerequisites
@@ -16,13 +16,13 @@ Prerequisites
 To run these integration tests, you need to set the following environment variables:
 
 Required:
-    - SIMPLOYER_CLIENT_ID: Your Simployer OAuth2 client ID
-    - SIMPLOYER_CLIENT_SECRET: Your Simployer OAuth2 client secret
+    - SIMPLOYER_CLIENT_ID: Your Simployer client ID
+    - SIMPLOYER_CLIENT_SECRET: Your Simployer client secret
 
 Optional (with defaults):
     - SIMPLOYER_HOST: Simployer API host (default: https://hrconnect.simployer.com)
-    - SIMPLOYER_TOKEN_ENDPOINT: OAuth2 token endpoint (default: https://simplauth.simployer.com/oauth/token)
-    - SIMPLOYER_AUDIENCE: OAuth2 audience (default: https://hrconnect.simployer.com)
+    - SIMPLOYER_TOKEN_ENDPOINT: Token endpoint (default: https://simplauth.simployer.com/oauth/token)
+    - SIMPLOYER_AUDIENCE: Audience identifier (default: https://hrconnect.simployer.com)
 
 Status
 ------

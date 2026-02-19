@@ -5,14 +5,14 @@
 Example 01: Connect to Simployer using a linked service.
 
 This example demonstrates how to:
-- Create a Simployer linked service with OAuth2 client credentials
+- Create a Simployer linked service with client credentials
 - Test the connection to Simployer
 - Use the linked service for API interactions
 
 Prerequisites:
     Set environment variables or provide credentials directly:
-    - SIMPLOYER_CLIENT_ID: Your Simployer OAuth2 client ID
-    - SIMPLOYER_CLIENT_SECRET: Your Simployer OAuth2 client secret
+    - SIMPLOYER_CLIENT_ID: Your Simployer  client ID
+    - SIMPLOYER_CLIENT_SECRET: Your Simployer client secret
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@
 Simployer Linked Service
 
 This module implements a linked service for Simployer, allowing users to connect to and interact with
-Simployer instance using OAuth2 client credentials.
+Simployer instance using client credentials.
 
 Example:
     >>> from uuid import uuid4
@@ -50,13 +50,13 @@ logger = Logger.get_logger(__name__, package=True)
 @dataclass(kw_only=True)
 class SimployerLinkedServiceSettings(HttpLinkedServiceSettings):
     """
-    Settings required to connect to Simployer API using OAuth2 client credentials.
+    Settings required to connect to Simployer API using client credentials.
 
     Attributes:
-        client_id: OAuth2 client ID for authentication
-        client_secret: OAuth2 client secret for authentication
-        token_endpoint: OAuth2 token endpoint (default: https://simplauth.simployer.com/oauth/token)
-        audience: OAuth2 audience identifier (default: https://hrconnect.simployer.com)
+        client_id: Client ID for authentication
+        client_secret: Client secret for authentication
+        token_endpoint: Token endpoint (default: https://simplauth.simployer.com/oauth/token)
+        audience: Audience identifier (default: https://hrconnect.simployer.com)
         api_version: API version to use (default: v1)
         host: API host URL (default: https://hrconnect.simployer.com)
         auth_type: Authentication type (default: CUSTOM)
@@ -64,16 +64,16 @@ class SimployerLinkedServiceSettings(HttpLinkedServiceSettings):
     """
 
     client_id: str
-    """The OAuth2 client ID for authentication."""
+    """The client ID for authentication."""
 
     client_secret: str = field(repr=False, metadata={"mask": True})
-    """The OAuth2 client secret for authentication."""
+    """The client secret for authentication."""
 
     token_endpoint: str = "https://simplauth.simployer.com/oauth/token"
-    """The OAuth2 token endpoint URL."""
+    """The token endpoint URL."""
 
     audience: str = "https://hrconnect.simployer.com"
-    """The OAuth2 audience identifier."""
+    """The audience identifier."""
 
     api_version: str = "v1"
     """The API version to use."""
@@ -104,7 +104,7 @@ class SimployerLinkedService(
     Generic[SimployerLinkedServiceSettingsType],
 ):
     """
-    Linked service for connecting to Simployer using OAuth2 client credentials.
+    Linked service for connecting to Simployer using client credentials.
 
     """
 
