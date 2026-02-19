@@ -11,7 +11,7 @@ This example demonstrates how to:
 
 Prerequisites:
     Set environment variables or provide credentials directly:
-    - SIMPLOYER_CLIENT_ID: Your Simployer  client ID
+    - SIMPLOYER_CLIENT_ID: Your Simployer client ID
     - SIMPLOYER_CLIENT_SECRET: Your Simployer client secret
 """
 
