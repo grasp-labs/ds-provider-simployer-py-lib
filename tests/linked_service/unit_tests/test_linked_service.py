@@ -34,7 +34,7 @@ def test_post_init_configures_custom_auth():
     # Verify token endpoint
     assert service.settings.custom.token_endpoint == service.settings.token_endpoint
 
-    # Verify OAuth2 data
+    # Verify data
     assert service.settings.custom.data["client_id"] == service.settings.client_id
     assert service.settings.custom.data["client_secret"] == service.settings.client_secret
     assert service.settings.custom.data["audience"] == service.settings.audience
