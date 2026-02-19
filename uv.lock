@@ -481,7 +481,7 @@ wheels = [
 
 [[package]]
 name = "ds-protocol-http-py-lib"
-version = "0.1.0b1"
+version = "0.1.0b2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ds-common-logger-py-lib" },
@@ -489,9 +489,9 @@ dependencies = [
     { name = "pandas" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/b8/190b2c4fde1668406b2d73402c2299cf8b949a2277e0b5f6a84f703b3e42/ds_protocol_http_py_lib-0.1.0b1.tar.gz", hash = "sha256:54b34e5defdf2d3ab5296f670ce6aab2e364f4ca832633ae0856fc4d4434c482", size = 21139, upload-time = "2026-02-05T19:08:24.318Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/fa/5d6fbc48a18a9f22b31079159ebcf3abd197ad73599a09c4461fb7ee3809/ds_protocol_http_py_lib-0.1.0b2.tar.gz", hash = "sha256:e5085f04b2cf29718766cc871289a2cbb74c957b569e5b13c734921bb4df70ef", size = 21218, upload-time = "2026-02-18T14:18:31.644Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/db/adcda243cc3aa9acfd503f2597ae8cabd7e53040744bbe7adb9df57c05f7/ds_protocol_http_py_lib-0.1.0b1-py3-none-any.whl", hash = "sha256:cbcfe02c67af79a01ff52870770bc5037c826dc22d96949024da7997e5bb3add", size = 23155, upload-time = "2026-02-05T19:08:23.316Z" },
+    { url = "https://files.pythonhosted.org/packages/79/74/cdb3e89570af861ccb55c952f42d7a11e69abe823ebdadd2cb2ecc85d8f8/ds_protocol_http_py_lib-0.1.0b2-py3-none-any.whl", hash = "sha256:2035a9e9aa2c508e3d8dbda20eee317f185b36686efead8e515e63815e322bbd", size = 23173, upload-time = "2026-02-18T14:18:30.264Z" },
 ]
 
 [[package]]
@@ -540,7 +540,7 @@ requires-dist = [
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "ds-common-logger-py-lib", specifier = ">=0.1.0a5,<1.0.0" },
-    { name = "ds-protocol-http-py-lib", specifier = ">=0.1.0b1,<1.0.0" },
+    { name = "ds-protocol-http-py-lib", specifier = ">=0.1.0b2,<1.0.0" },
     { name = "ds-resource-plugin-py-lib", specifier = ">=0.1.0b1,<1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7.0" },
     { name = "pandas-stubs", marker = "extra == 'dev'", specifier = ">=2.0.0" },

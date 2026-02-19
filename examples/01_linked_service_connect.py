@@ -5,58 +5,70 @@
 Example 01: Connect to Simployer using a linked service.
 
 This example demonstrates how to:
-- Create a Simployer linked service
-- Creates a connection using OAuth2 client credentials
-- Test the connection
+- Create a Simployer linked service with OAuth2 client credentials
+- Test the connection to Simployer
+- Use the linked service for API interactions
+
+Prerequisites:
+    Set environment variables or provide credentials directly:
+    - SIMPLOYER_CLIENT_ID: Your Simployer OAuth2 client ID
+    - SIMPLOYER_CLIENT_SECRET: Your Simployer OAuth2 client secret
 """
 
 from __future__ import annotations
 
+import os
 from uuid import uuid4
+import logging
 
 from ds_common_logger_py_lib import Logger
-from ds_resource_plugin_py_lib.common.resource.errors import ResourceException
 
 from ds_provider_simployer_py_lib.linked_service.simployer import (
     SimployerLinkedService,
     SimployerLinkedServiceSettings,
 )
 
-logger = Logger.get_logger(__name__, package=False)
+Logger.configure(level=logging.DEBUG)
+logger = Logger.get_logger(__name__)
 
 
 def main() -> None:
     """Main function demonstrating Simployer linked service connection."""
+    # Get credentials from environment or use defaults
+    client_id = os.getenv("SIMPLOYER_CLIENT_ID", "your_client_id")
+    client_secret = os.getenv("SIMPLOYER_CLIENT_SECRET", "your_client_secret")
+
+    # Create Simployer linked service settings
+    settings = SimployerLinkedServiceSettings(
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    # Create the linked service
     linked_service = SimployerLinkedService(
         id=uuid4(),
         name="Simployer Linked Service",
         version="1.0.0",
-        settings=SimployerLinkedServiceSettings(
-            auth_type="OAUTH2",
-            host="https://api.simployer.com",
-            client_id="your_client_id",
-            client_secret="your_client_secret",
-        ),
+        settings=settings,
     )
 
     try:
-        logger.debug("Connecting to Simployer...")
-        linked_service.connect()
-
-        logger.debug("Testing connection...")
+        logger.info("Testing connection to Simployer...")
         success, message = linked_service.test_connection()
+
         if success:
-            logger.debug("Connection test successful: %s", message)
+            logger.info("✓ Connection test successful!")
+            logger.debug("Message: %s", message)
         else:
-            logger.error("Connection test failed: %s", message)
+            logger.error("✗ Connection test failed: %s", message)
+            return
+
     except ConnectionError as exc:
         logger.error("Failed to connect to Simployer: %s", exc)
         raise
     except Exception as exc:
         logger.error("Unexpected error: %s", exc)
         raise
-    finally:
-        linked_service.close()
 
 
 if __name__ == "__main__":
