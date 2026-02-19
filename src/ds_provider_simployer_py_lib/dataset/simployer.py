@@ -17,7 +17,8 @@ Example:
     ...     linked_service=SimployerLinkedService(
     ...         settings=SimployerLinkedServiceSettings(
     ...             host="https://api.example.com",
-    ...             api_key="your-api-key",
+    ...             client_id="your_client_id",
+    ...             client_secret="your_client_secret",
     ...         ),
     ...     ),
     ... )
@@ -272,6 +273,5 @@ class SimployerDataset(
         Args:
             content: The content to set the schema from.
         """
-        self.schema = {
-            str(col): str(dtype) for col, dtype in content.convert_dtypes(dtype_backend="pyarrow").dtypes.to_dict().items()
-        }
+        dtypes = content.convert_dtypes(dtype_backend="pyarrow").dtypes.to_dict()
+        self.schema = {str(col): str(dtype) for col, dtype in dtypes.items()}
