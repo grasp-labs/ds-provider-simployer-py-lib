@@ -123,10 +123,10 @@ class SimployerLinkedService(
     @property
     def connection(self) -> Any:
         """
-        Get the backend client (HTTP session).
+        Get the HTTP session for making API requests.
 
         Returns:
-            Http: The HTTP session for making API requests.
+            requests.Session: The authenticated HTTP session.
 
         Raises:
             ConnectionError: If connect() has not been called.

@@ -181,9 +181,9 @@ class SimployerDataset(
                 )
                 resp_json = response.json()
                 records = resp_json.get("records", [])
-                # Note: "has_next_p" is the exact field name used by the Simployer API.
-                # The "_p" suffix is part of the API's naming convention and must not be changed.
-                has_next = resp_json.get("has_next_p", False)
+                # Note: "has_next_page" is the exact field name used by the Simployer API.
+                # The "_page" suffix is part of the API's naming convention and must not be changed.
+                has_next = resp_json.get("has_next_page", False)
                 all_records.extend(records)
 
                 if not has_next:
@@ -191,11 +191,23 @@ class SimployerDataset(
                 page += 1
             self.output = pd.DataFrame(all_records)
             # Update checkpoint only after successful processing of all pages and DataFrame construction
-            self.checkpoint = {"last_page": page - 1}
+            self.checkpoint = {
+                "last_page": page - 1,
+                "page_size": self.settings.read.page_size,
+                "from_date": self.settings.read.from_date,
+                "to_date": self.settings.read.to_date,
+                "data_product": self.settings.data_product.value,
+            }
         except Exception as exc:
             self.output = pd.DataFrame(all_records)  # partial results
             # On error, checkpoint is the last successfully completed page
-            self.checkpoint = {"last_page": page - 1} if page > 1 else {}
+            self.checkpoint = {
+                "last_page": page - 1 if page > 1 else 0,
+                "page_size": self.settings.read.page_size,
+                "from_date": self.settings.read.from_date,
+                "to_date": self.settings.read.to_date,
+                "data_product": self.settings.data_product.value,
+            }
             logger.error("Failed to read resource: %s", exc)
             raise ReadError(
                 message=f"Failed to read data from Simployer API for product {self.settings.data_product} at page {page}",

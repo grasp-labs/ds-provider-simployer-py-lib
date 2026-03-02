@@ -89,14 +89,14 @@ def make_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES, checkp
 
 def test_read_returns_none():
     """read() must return None per contract."""
-    responses = [DummyResponse({"records": [], "has_next_p": False})]
+    responses = [DummyResponse({"records": [], "has_next_page": False})]
     dataset = make_dataset(responses)
     assert dataset.read() is None
 
 
 def test_read_populates_output():
     """read() must populate self.output with a DataFrame."""
-    responses = [DummyResponse({"records": [{"id": 1, "name": "Alice"}], "has_next_p": False})]
+    responses = [DummyResponse({"records": [{"id": 1, "name": "Alice"}], "has_next_page": False})]
     dataset = make_dataset(responses)
     dataset.read()
     assert dataset.output is not None
@@ -111,7 +111,7 @@ def test_read_single_page():
         DummyResponse(
             {
                 "records": [{"id": 1}, {"id": 2}],
-                "has_next_p": False,
+                "has_next_page": False,
             }
         )
     ]
@@ -123,9 +123,9 @@ def test_read_single_page():
 def test_read_multiple_pages():
     """read() handles pagination internally, concatenating all pages."""
     responses = [
-        DummyResponse({"records": [{"id": 1}], "has_next_p": True}),
-        DummyResponse({"records": [{"id": 2}], "has_next_p": True}),
-        DummyResponse({"records": [{"id": 3}], "has_next_p": False}),
+        DummyResponse({"records": [{"id": 1}], "has_next_page": True}),
+        DummyResponse({"records": [{"id": 2}], "has_next_page": True}),
+        DummyResponse({"records": [{"id": 3}], "has_next_page": False}),
     ]
     dataset = make_dataset(responses)
     dataset.read()
@@ -135,7 +135,7 @@ def test_read_multiple_pages():
 
 def test_read_empty_result():
     """read() returns empty DataFrame when no records exist (not an error)."""
-    responses = [DummyResponse({"records": [], "has_next_p": False})]
+    responses = [DummyResponse({"records": [], "has_next_page": False})]
     dataset = make_dataset(responses)
     dataset.read()
     assert dataset.output is not None
@@ -176,8 +176,8 @@ def test_read_error_includes_details():
 def test_read_partial_results_on_error():
     """self.output may contain partial data when error occurs mid-pagination."""
     responses = [
-        DummyResponse({"records": [{"id": 1}], "has_next_p": True}),
-        DummyResponse({"records": [{"id": 2}], "has_next_p": True}),
+        DummyResponse({"records": [{"id": 1}], "has_next_page": True}),
+        DummyResponse({"records": [{"id": 2}], "has_next_page": True}),
         Exception("Failed on page 3"),
     ]
     dataset = make_dataset(responses)
@@ -204,7 +204,7 @@ def test_supports_checkpoint_returns_true():
 
 def test_checkpoint_empty_means_full_load():
     """Empty checkpoint ({}) means full load starting from page 1."""
-    responses = [DummyResponse({"records": [{"id": 1}], "has_next_p": False})]
+    responses = [DummyResponse({"records": [{"id": 1}], "has_next_page": False})]
     dataset = make_dataset(responses, checkpoint={})
     dataset.read()
 
@@ -215,8 +215,11 @@ def test_checkpoint_empty_means_full_load():
 
 def test_checkpoint_populated_resumes():
     """Populated checkpoint resumes from last_page + 1."""
-    responses = [DummyResponse({"records": [{"id": 5}], "has_next_p": False})]
-    dataset = make_dataset(responses, checkpoint={"last_page": 3})
+    responses = [DummyResponse({"records": [{"id": 5}], "has_next_page": False})]
+    dataset = make_dataset(
+        responses,
+        checkpoint={"last_page": 3, "page_size": 100, "from_date": None, "to_date": None},
+    )
     dataset.read()
 
     # Verify page parameter was 4 (3 + 1)
@@ -227,21 +230,24 @@ def test_checkpoint_populated_resumes():
 def test_checkpoint_updated_after_success():
     """Checkpoint is updated after successful read."""
     responses = [
-        DummyResponse({"records": [{"id": 1}], "has_next_p": True}),
-        DummyResponse({"records": [{"id": 2}], "has_next_p": False}),
+        DummyResponse({"records": [{"id": 1}], "has_next_page": True}),
+        DummyResponse({"records": [{"id": 2}], "has_next_page": False}),
     ]
     dataset = make_dataset(responses, checkpoint={})
     dataset.read()
 
-    # Two pages read successfully, checkpoint should reflect last page
-    assert dataset.checkpoint == {"last_page": 1}
+    # Two pages read successfully, checkpoint should reflect last page and settings
+    assert dataset.checkpoint["last_page"] == 1
+    assert "page_size" in dataset.checkpoint
+    assert "from_date" in dataset.checkpoint
+    assert "to_date" in dataset.checkpoint
 
 
 def test_checkpoint_on_error_reflects_last_successful_page():
     """On error, checkpoint reflects last successfully completed page."""
     responses = [
-        DummyResponse({"records": [{"id": 1}], "has_next_p": True}),
-        DummyResponse({"records": [{"id": 2}], "has_next_p": True}),
+        DummyResponse({"records": [{"id": 1}], "has_next_page": True}),
+        DummyResponse({"records": [{"id": 2}], "has_next_page": True}),
         Exception("Failed on page 3"),
     ]
     dataset = make_dataset(responses, checkpoint={})
@@ -250,7 +256,8 @@ def test_checkpoint_on_error_reflects_last_successful_page():
         dataset.read()
 
     # Pages 1 and 2 succeeded, failed on 3
-    assert dataset.checkpoint == {"last_page": 2}
+    assert dataset.checkpoint["last_page"] == 2
+    assert "page_size" in dataset.checkpoint
 
 
 # -----------------------------------------------------------------------------
