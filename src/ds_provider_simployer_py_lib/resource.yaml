@@ -1,10 +1,17 @@
 package-name: Simployer
-name: Simployer
+name: simployer
 description: Simployer provider for the DS Business Workflow
 
 linked_service:
-  - name: Simployer
-    kind: DS.RESOURCE.LINKED_SERVICE.SIMPLOYER
+  - name: simployer
+    type: ds.resource.linked_service.simployer
     version: 1.0.0
     description: Simployer linked service
     class_name: ds_provider_simployer_py_lib.linked_service.SimployerLinkedService
+
+dataset:
+  - name: simployer
+    type: ds.resource.dataset.simployer
+    version: 1.0.0
+    description: Simployer dataset
+    class_name: ds_provider_simployer_py_lib.dataset.simployer.SimployerDataset

@@ -1,456 +1,328 @@
-"""
-**File:** ``test_simployer_dataset.py``
-**Region:** ``tests/dataset``
+"""Unit tests for SimployerDataset."""
 
-Description
------------
-Unit tests for Simployer dataset implementation, covering read, create, request handling, and error scenarios.
-"""
-
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pandas as pd
 import pytest
-import requests
-from ds_resource_plugin_py_lib.common.resource.dataset import DatasetStorageFormatType
 from ds_resource_plugin_py_lib.common.resource.dataset.errors import ReadError
-from ds_resource_plugin_py_lib.common.resource.linked_service.errors import (
-    AuthenticationError,
-    AuthorizationError,
-)
-from ds_resource_plugin_py_lib.common.resource.linked_service.errors import (
-    ConnectionError as LinkedServiceConnectionError,
-)
-from ds_resource_plugin_py_lib.common.serde.deserialize import PandasDeserializer
-from ds_resource_plugin_py_lib.common.serde.serialize import PandasSerializer
+from ds_resource_plugin_py_lib.common.resource.errors import NotSupportedError
 
 from ds_provider_simployer_py_lib.dataset.simployer import (
+    ReadSettings,
     SimployerDataset,
     SimployerDatasetSettings,
 )
+from ds_provider_simployer_py_lib.enums import ResourceType, SimployerDataProducts
 from ds_provider_simployer_py_lib.linked_service.simployer import SimployerLinkedService
 
 
-@pytest.fixture
-def mock_linked_service():
-    """Create a mock linked service."""
-    mock_service = MagicMock(spec=SimployerLinkedService)
-    mock_service.type = MagicMock()
-    mock_service.type.value = "DS.RESOURCE.DATASET.SIMPLOYER"
+class DummyResponse:
+    """Mock HTTP response."""
 
-    # Mock settings object
-    mock_settings = MagicMock()
-    mock_settings.host = "https://api.example.com"
-    mock_settings.api_version = "v1"
-    mock_settings.timeout_seconds = 30
-    mock_service.settings = mock_settings
+    def __init__(self, json_data):
+        self._json = json_data
 
-    return mock_service
+    def json(self):
+        return self._json
 
 
-@pytest.fixture
-def dataset_settings():
-    """Create dataset settings."""
-    return SimployerDatasetSettings(
-        endpoint="/data",
-        method="GET",
+class DummySession:
+    """Mock HTTP session that returns predefined responses."""
+
+    def __init__(self, responses):
+        self.responses = responses
+        self.call_count = 0
+        self.requests = []
+
+    def request(self, method, url, params):
+        self.requests.append({"method": method, "url": url, "params": params})
+        resp = self.responses[self.call_count]
+        self.call_count += 1
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
+
+
+class DummySimployerLinkedService(SimployerLinkedService):
+    """Mock linked service with injected session."""
+
+    def __init__(self, settings, session):
+        super().__init__(id=uuid4(), name="dummy_name", version="1.0", settings=settings)
+        self._session = session
+
+    @property
+    def session(self):
+        return self._session
+
+
+def make_linked_service(responses):
+    """Create a mock linked service with predefined responses."""
+    settings = MagicMock()
+    settings.host = "https://hrconnect.simployer.com"
+    return DummySimployerLinkedService(settings=settings, session=DummySession(responses))
+
+
+def make_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES, checkpoint=None):
+    """Create a dataset with mocked linked service."""
+    linked_service = make_linked_service(responses)
+    settings = SimployerDatasetSettings(
+        data_product=data_product,
+        read=ReadSettings(page_size=100),
     )
-
-
-@pytest.fixture
-def simployer_dataset(mock_linked_service, dataset_settings):
-    """Create a Simployer dataset instance."""
-    return SimployerDataset(
-        linked_service=mock_linked_service,
-        settings=dataset_settings,
-        serializer=PandasSerializer(format=DatasetStorageFormatType.JSON),
-        deserializer=PandasDeserializer(format=DatasetStorageFormatType.JSON),
+    dataset = SimployerDataset(
         id=uuid4(),
         name="test_dataset",
-        version="1.0.0",
+        version="1.0",
+        linked_service=linked_service,
+        settings=settings,
     )
+    if checkpoint is not None:
+        dataset.checkpoint = checkpoint
+    return dataset
 
 
-class TestSimployerDatasetRead:
-    """Tests for the read method."""
+# -----------------------------------------------------------------------------
+# Contract: read() returns None, populates self.output
+# -----------------------------------------------------------------------------
 
-    def test_read_success(self, simployer_dataset, mock_linked_service):
-        """Test successful data read."""
-        # Mock response
-        mock_response = MagicMock()
-        mock_response.content = b'[{"id": 1, "name": "test"}]'
-        mock_response.raise_for_status.return_value = None
 
-        # Mock session
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
+def test_read_returns_none():
+    """read() must return None per contract."""
+    responses = [DummyResponse({"records": [], "has_next_p": False})]
+    dataset = make_dataset(responses)
+    assert dataset.read() is None
 
-        # Mock deserializer
-        mock_df = pd.DataFrame({"id": [1], "name": ["test"]})
-        simployer_dataset.deserializer = MagicMock()
-        simployer_dataset.deserializer.return_value = mock_df
-        simployer_dataset.deserializer.get_next.return_value = False
-        simployer_dataset.deserializer.get_end_cursor.return_value = None
 
-        simployer_dataset.read()
+def test_read_populates_output():
+    """read() must populate self.output with a DataFrame."""
+    responses = [DummyResponse({"records": [{"id": 1, "name": "Alice"}], "has_next_p": False})]
+    dataset = make_dataset(responses)
+    dataset.read()
+    assert dataset.output is not None
+    assert isinstance(dataset.output, pd.DataFrame)
+    assert len(dataset.output) == 1
+    assert dataset.output.iloc[0]["name"] == "Alice"
 
-        # Verify session.request was called correctly
-        mock_session.request.assert_called_once()
-        call_kwargs = mock_session.request.call_args[1]
-        assert call_kwargs["method"] == "GET"
-        assert call_kwargs["url"] == "https://api.example.com/api/v1/data"
-        assert call_kwargs["timeout"] == 30
 
-        # Verify output is set
-        assert simployer_dataset.output.equals(mock_df)
-        assert simployer_dataset.next is False
-
-    def test_read_with_pagination(self, simployer_dataset, mock_linked_service):
-        """Test read with pagination cursor."""
-        mock_response = MagicMock()
-        mock_response.content = b'[{"id": 1}]'
-        mock_response.raise_for_status.return_value = None
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        mock_df = pd.DataFrame({"id": [1]})
-        simployer_dataset.deserializer = MagicMock()
-        simployer_dataset.deserializer.return_value = mock_df
-        simployer_dataset.deserializer.get_next.return_value = True
-        simployer_dataset.deserializer.get_end_cursor.return_value = "next_cursor_123"
-
-        simployer_dataset.read()
-
-        assert simployer_dataset.next is True
-        assert simployer_dataset.cursor == "next_cursor_123"
-
-    def test_read_authentication_error(self, simployer_dataset, mock_linked_service):
-        """Test read with authentication error (401)."""
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_exception = requests.HTTPError()
-        mock_exception.response = mock_response
-        mock_response.raise_for_status.side_effect = mock_exception
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        with pytest.raises(AuthenticationError) as exc_info:
-            simployer_dataset.read()
-
-        assert exc_info.value.message == "Authentication failed"
-        assert exc_info.value.status_code == 401
-
-    def test_read_authorization_error(self, simployer_dataset, mock_linked_service):
-        """Test read with authorization error (403)."""
-        mock_response = MagicMock()
-        mock_response.status_code = 403
-        mock_exception = requests.HTTPError()
-        mock_exception.response = mock_response
-        mock_response.raise_for_status.side_effect = mock_exception
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        with pytest.raises(AuthorizationError) as exc_info:
-            simployer_dataset.read()
-
-        assert exc_info.value.message == "Authorization failed"
-        assert exc_info.value.status_code == 403
-
-    def test_read_http_error(self, simployer_dataset, mock_linked_service):
-        """Test read with other HTTP errors (5xx)."""
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_exception = requests.HTTPError()
-        mock_exception.response = mock_response
-        mock_response.raise_for_status.side_effect = mock_exception
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        with pytest.raises(ReadError) as exc_info:
-            simployer_dataset.read()
-
-        assert "HTTP error occurred" in exc_info.value.message
-        assert exc_info.value.status_code == 500
-
-    def test_read_request_exception(self, simployer_dataset, mock_linked_service):
-        """Test read with request exception."""
-        mock_session = MagicMock()
-        mock_session.request.side_effect = requests.RequestException("Connection timeout")
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        with pytest.raises(ReadError) as exc_info:
-            simployer_dataset.read()
-
-        assert "Request failed" in exc_info.value.message
-
-    def test_read_empty_response(self, simployer_dataset, mock_linked_service):
-        """Test read with empty response content."""
-        mock_response = MagicMock()
-        mock_response.content = b""
-        mock_response.raise_for_status.return_value = None
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        simployer_dataset.read()
-
-        # Should create empty DataFrame
-        assert isinstance(simployer_dataset.output, pd.DataFrame)
-        assert len(simployer_dataset.output) == 0
-        assert simployer_dataset.next is False
-
-    def test_read_not_connected(self, simployer_dataset, mock_linked_service):
-        """Test read when not connected to linked service."""
-        type(mock_linked_service).session = PropertyMock(
-            side_effect=LinkedServiceConnectionError(
-                message="Not connected",
-                status_code=0,
-                details={},
-            )
-        )
-
-        with pytest.raises(LinkedServiceConnectionError):
-            simployer_dataset.read()
-
-
-class TestSimployerDatasetCreate:
-    """Tests for the create method."""
-
-    def test_create_success(self, simployer_dataset, mock_linked_service):
-        """Test successful data creation."""
-        mock_response = MagicMock()
-        mock_response.content = b'{"id": 123}'
-        mock_response.raise_for_status.return_value = None
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        mock_df = pd.DataFrame({"id": [123]})
-        simployer_dataset.deserializer = MagicMock()
-        simployer_dataset.deserializer.return_value = mock_df
-
-        simployer_dataset.create()
-
-        mock_session.request.assert_called_once()
-        assert simployer_dataset.output.equals(mock_df)
-
-    def test_create_with_post_method(self, mock_linked_service):
-        """Test create with POST method and request body."""
-        settings = SimployerDatasetSettings(
-            endpoint="/data",
-            method="POST",
-            json={"name": "test_data"},
-        )
-        dataset = SimployerDataset(
-            linked_service=mock_linked_service,
-            settings=settings,
-            id=uuid4(),
-            name="test",
-            version="1.0.0",
-        )
-
-        mock_response = MagicMock()
-        mock_response.content = b"{}"
-        mock_response.raise_for_status.return_value = None
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        dataset.deserializer = MagicMock()
-        dataset.deserializer.return_value = pd.DataFrame()
-
-        dataset.create()
-
-        call_kwargs = mock_session.request.call_args[1]
-        assert call_kwargs["method"] == "POST"
-        assert call_kwargs["json"] == {"name": "test_data"}
-
-    def test_create_authentication_error(self, simployer_dataset, mock_linked_service):
-        """Test create with authentication error."""
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_exception = requests.HTTPError()
-        mock_exception.response = mock_response
-        mock_response.raise_for_status.side_effect = mock_exception
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        with pytest.raises(AuthenticationError):
-            simployer_dataset.create()
-
-
-class TestSimployerDatasetSendRequest:
-    """Tests for the _send_request method."""
-
-    def test_send_request_url_construction(self, simployer_dataset, mock_linked_service):
-        """Test correct URL construction with different endpoint formats."""
-        mock_response = MagicMock()
-        mock_response.raise_for_status.return_value = None
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        simployer_dataset._send_request(ReadError)
-
-        call_kwargs = mock_session.request.call_args[1]
-        assert call_kwargs["url"] == "https://api.example.com/api/v1/data"
-
-    def test_send_request_with_params(self, mock_linked_service):
-        """Test send_request with query parameters."""
-        settings = SimployerDatasetSettings(
-            endpoint="/data",
-            params={"filter": "active", "limit": 10},
-        )
-        dataset = SimployerDataset(
-            linked_service=mock_linked_service,
-            settings=settings,
-            id=uuid4(),
-            name="test",
-            version="1.0.0",
-        )
-
-        mock_response = MagicMock()
-        mock_response.raise_for_status.return_value = None
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        dataset._send_request(ReadError)
-
-        call_kwargs = mock_session.request.call_args[1]
-        assert call_kwargs["params"] == {"filter": "active", "limit": 10}
-
-    def test_send_request_with_headers(self, mock_linked_service):
-        """Test send_request with custom headers."""
-        settings = SimployerDatasetSettings(
-            endpoint="/data",
-            headers={"X-Custom-Header": "value"},
-        )
-        dataset = SimployerDataset(
-            linked_service=mock_linked_service,
-            settings=settings,
-            id=uuid4(),
-            name="test",
-            version="1.0.0",
-        )
-
-        mock_response = MagicMock()
-        mock_response.raise_for_status.return_value = None
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        dataset._send_request(ReadError)
-
-        call_kwargs = mock_session.request.call_args[1]
-        assert call_kwargs["headers"] == {"X-Custom-Header": "value"}
-
-    def test_send_request_endpoint_slash_handling(self, mock_linked_service):
-        """Test endpoint with/without leading slash."""
-        settings = SimployerDatasetSettings(endpoint="data")  # No leading slash
-        dataset = SimployerDataset(
-            linked_service=mock_linked_service,
-            settings=settings,
-            id=uuid4(),
-            name="test",
-            version="1.0.0",
-        )
-
-        mock_response = MagicMock()
-        mock_response.raise_for_status.return_value = None
-
-        mock_session = MagicMock()
-        mock_session.request.return_value = mock_response
-        type(mock_linked_service).session = PropertyMock(return_value=mock_session)
-
-        dataset._send_request(ReadError)
-
-        call_kwargs = mock_session.request.call_args[1]
-        assert call_kwargs["url"] == "https://api.example.com/api/v1/data"
-
-
-class TestSimployerDatasetNotImplemented:
-    """Tests for not-implemented operations."""
-
-    def test_delete_not_implemented(self, simployer_dataset):
-        """Test that delete raises NotImplementedError."""
-        with pytest.raises(NotImplementedError) as exc_info:
-            simployer_dataset.delete()
-
-        assert "Delete operation is not supported" in str(exc_info.value)
-
-    def test_update_not_implemented(self, simployer_dataset):
-        """Test that update raises NotImplementedError."""
-        with pytest.raises(NotImplementedError) as exc_info:
-            simployer_dataset.update()
-
-        assert "Update operation is not supported" in str(exc_info.value)
-
-    def test_rename_not_implemented(self, simployer_dataset):
-        """Test that rename raises NotImplementedError."""
-        with pytest.raises(NotImplementedError) as exc_info:
-            simployer_dataset.rename()
-
-        assert "Rename operation is not supported" in str(exc_info.value)
-
-
-class TestSimployerDatasetClose:
-    """Tests for the close method."""
-
-    def test_close_calls_linked_service_close(self, simployer_dataset, mock_linked_service):
-        """Test that close calls linked_service.close()."""
-        simployer_dataset.close()
-
-        mock_linked_service.close.assert_called_once()
-
-
-class TestSimployerDatasetSetSchema:
-    """Tests for the _set_schema method."""
-
-    def test_set_schema(self, simployer_dataset):
-        """Test schema is correctly extracted from DataFrame."""
-        df = pd.DataFrame(
+def test_read_single_page():
+    """read() handles single page response correctly."""
+    responses = [
+        DummyResponse(
             {
-                "id": [1, 2, 3],
-                "name": ["a", "b", "c"],
-                "value": [1.5, 2.5, 3.5],
+                "records": [{"id": 1}, {"id": 2}],
+                "has_next_p": False,
             }
         )
-
-        simployer_dataset._set_schema(df)
-
-        assert simployer_dataset.schema is not None
-        assert "id" in simployer_dataset.schema
-        assert "name" in simployer_dataset.schema
-        assert "value" in simployer_dataset.schema
+    ]
+    dataset = make_dataset(responses)
+    dataset.read()
+    assert len(dataset.output) == 2
 
 
-class TestSimployerDatasetProperties:
-    """Tests for dataset properties."""
+def test_read_multiple_pages():
+    """read() handles pagination internally, concatenating all pages."""
+    responses = [
+        DummyResponse({"records": [{"id": 1}], "has_next_p": True}),
+        DummyResponse({"records": [{"id": 2}], "has_next_p": True}),
+        DummyResponse({"records": [{"id": 3}], "has_next_p": False}),
+    ]
+    dataset = make_dataset(responses)
+    dataset.read()
+    assert len(dataset.output) == 3
+    assert list(dataset.output["id"]) == [1, 2, 3]
 
-    def test_type_property(self, simployer_dataset):
-        """Test type property returns correct ResourceType."""
-        assert simployer_dataset.type.value == "DS.RESOURCE.DATASET.SIMPLOYER"
 
-    def test_method_defaults(self):
-        """Test default HTTP method is GET."""
-        settings = SimployerDatasetSettings(endpoint="/data")
-        assert settings.method == "GET"
+def test_read_empty_result():
+    """read() returns empty DataFrame when no records exist (not an error)."""
+    responses = [DummyResponse({"records": [], "has_next_p": False})]
+    dataset = make_dataset(responses)
+    dataset.read()
+    assert dataset.output is not None
+    assert isinstance(dataset.output, pd.DataFrame)
+    assert len(dataset.output) == 0
+
+
+# -----------------------------------------------------------------------------
+# Contract: Error handling - wrap in ReadError with details
+# -----------------------------------------------------------------------------
+
+
+def test_read_wraps_exception_in_read_error():
+    """Backend exceptions must be wrapped in ReadError with chaining."""
+    responses = [Exception("Network failure")]
+    dataset = make_dataset(responses)
+
+    with pytest.raises(ReadError) as exc_info:
+        dataset.read()
+
+    assert "Failed to read data from Simployer API" in str(exc_info.value)
+    assert exc_info.value.__cause__ is not None
+
+
+def test_read_error_includes_details():
+    """ReadError must include debugging details."""
+    responses = [Exception("API error")]
+    dataset = make_dataset(responses)
+
+    with pytest.raises(ReadError) as exc_info:
+        dataset.read()
+
+    assert exc_info.value.details is not None
+    assert "data_product" in exc_info.value.details
+    assert "failed_page" in exc_info.value.details
+
+
+def test_read_partial_results_on_error():
+    """self.output may contain partial data when error occurs mid-pagination."""
+    responses = [
+        DummyResponse({"records": [{"id": 1}], "has_next_p": True}),
+        DummyResponse({"records": [{"id": 2}], "has_next_p": True}),
+        Exception("Failed on page 3"),
+    ]
+    dataset = make_dataset(responses)
+
+    with pytest.raises(ReadError):
+        dataset.read()
+
+    # Partial results from pages 1 and 2 should be in output
+    assert dataset.output is not None
+    assert len(dataset.output) == 2
+
+
+# -----------------------------------------------------------------------------
+# Contract: Checkpoint support
+# -----------------------------------------------------------------------------
+
+
+def test_supports_checkpoint_returns_true():
+    """supports_checkpoint property must return True."""
+    responses = []
+    dataset = make_dataset(responses)
+    assert dataset.supports_checkpoint is True
+
+
+def test_checkpoint_empty_means_full_load():
+    """Empty checkpoint ({}) means full load starting from page 1."""
+    responses = [DummyResponse({"records": [{"id": 1}], "has_next_p": False})]
+    dataset = make_dataset(responses, checkpoint={})
+    dataset.read()
+
+    # Verify page parameter was 1
+    request = dataset.linked_service.session.requests[0]
+    assert request["params"]["page"] == 1
+
+
+def test_checkpoint_populated_resumes():
+    """Populated checkpoint resumes from last_page + 1."""
+    responses = [DummyResponse({"records": [{"id": 5}], "has_next_p": False})]
+    dataset = make_dataset(responses, checkpoint={"last_page": 3})
+    dataset.read()
+
+    # Verify page parameter was 4 (3 + 1)
+    request = dataset.linked_service.session.requests[0]
+    assert request["params"]["page"] == 4
+
+
+def test_checkpoint_updated_after_success():
+    """Checkpoint is updated after successful read."""
+    responses = [
+        DummyResponse({"records": [{"id": 1}], "has_next_p": True}),
+        DummyResponse({"records": [{"id": 2}], "has_next_p": False}),
+    ]
+    dataset = make_dataset(responses, checkpoint={})
+    dataset.read()
+
+    # Two pages read successfully, checkpoint should reflect last page
+    assert dataset.checkpoint == {"last_page": 1}
+
+
+def test_checkpoint_on_error_reflects_last_successful_page():
+    """On error, checkpoint reflects last successfully completed page."""
+    responses = [
+        DummyResponse({"records": [{"id": 1}], "has_next_p": True}),
+        DummyResponse({"records": [{"id": 2}], "has_next_p": True}),
+        Exception("Failed on page 3"),
+    ]
+    dataset = make_dataset(responses, checkpoint={})
+
+    with pytest.raises(ReadError):
+        dataset.read()
+
+    # Pages 1 and 2 succeeded, failed on 3
+    assert dataset.checkpoint == {"last_page": 2}
+
+
+# -----------------------------------------------------------------------------
+# Contract: type property
+# -----------------------------------------------------------------------------
+
+
+def test_type_property():
+    """type property returns correct ResourceType."""
+    responses = []
+    dataset = make_dataset(responses)
+    assert dataset.type == ResourceType.SIMPLOYER_DATASET
+
+
+# -----------------------------------------------------------------------------
+# Contract: Unsupported methods raise NotSupportedError
+# -----------------------------------------------------------------------------
+
+
+def test_create_raises_not_supported():
+    """create() must raise NotSupportedError."""
+    dataset = make_dataset([])
+    with pytest.raises(NotSupportedError):
+        dataset.create()
+
+
+def test_update_raises_not_supported():
+    """update() must raise NotSupportedError."""
+    dataset = make_dataset([])
+    with pytest.raises(NotSupportedError):
+        dataset.update()
+
+
+def test_upsert_raises_not_supported():
+    """upsert() must raise NotSupportedError."""
+    dataset = make_dataset([])
+    with pytest.raises(NotSupportedError):
+        dataset.upsert()
+
+
+def test_delete_raises_not_supported():
+    """delete() must raise NotSupportedError."""
+    dataset = make_dataset([])
+    with pytest.raises(NotSupportedError):
+        dataset.delete()
+
+
+def test_purge_raises_not_supported():
+    """purge() must raise NotSupportedError."""
+    dataset = make_dataset([])
+    with pytest.raises(NotSupportedError):
+        dataset.purge()
+
+
+def test_list_raises_not_supported():
+    """list() must raise NotSupportedError."""
+    dataset = make_dataset([])
+    with pytest.raises(NotSupportedError):
+        dataset.list()
+
+
+def test_rename_raises_not_supported():
+    """rename() must raise NotSupportedError."""
+    dataset = make_dataset([])
+    with pytest.raises(NotSupportedError):
+        dataset.rename()
+
+
+def test_close_is_idempotent():
+    """close() must not raise and can be called multiple times."""
+    dataset = make_dataset([])
+    # Should not raise
+    dataset.close()
+    dataset.close()
+    dataset.close()

@@ -26,63 +26,61 @@ Example:
     >>> data = dataset.output
 """
 
-import builtins
 from dataclasses import dataclass, field
-from typing import Any, Generic, NoReturn, TypeVar
+from typing import Any, Generic, TypeVar
 
 import pandas as pd
-import requests
 from ds_common_logger_py_lib import Logger
-from ds_resource_plugin_py_lib.common.resource.dataset import (
-    DatasetSettings,
-    DatasetStorageFormatType,
-    TabularDataset,
-)
+from ds_common_serde_py_lib import Serializable
+from ds_resource_plugin_py_lib.common.resource.dataset import DatasetSettings, DatasetStorageFormatType, TabularDataset
 from ds_resource_plugin_py_lib.common.resource.dataset.errors import (
-    CreateError,
     ReadError,
 )
-from ds_resource_plugin_py_lib.common.resource.errors import ResourceException
-from ds_resource_plugin_py_lib.common.resource.linked_service.errors import (
-    AuthenticationError,
-    AuthorizationError,
-)
-from ds_resource_plugin_py_lib.common.resource.linked_service.errors import (
-    ConnectionError as LinkedServiceConnectionError,
-)
+from ds_resource_plugin_py_lib.common.resource.errors import NotSupportedError
 from ds_resource_plugin_py_lib.common.serde.deserialize import PandasDeserializer
 from ds_resource_plugin_py_lib.common.serde.serialize import PandasSerializer
 
-from ..enums import HttpMethod, ResourceType
+from ..enums import ResourceType, SimployerDataProducts, get_endpoint_for_product
 from ..linked_service.simployer import SimployerLinkedService
 
 logger = Logger.get_logger(__name__, package=True)
 
 
 @dataclass(kw_only=True)
+class ReadSettings(Serializable):
+    """Settings specific to the read() operation.
+
+    These settings only apply when reading data from the database
+    and do not affect create(), update() or delete() operations
+
+    """
+
+    page: int = 1
+    """Page number for pagination. Default is 1."""
+
+    page_size: int = 100
+    """Number of records per page for pagination. Default is 100."""
+
+    from_date: str | None = None
+    """Start date for filtering data, in YYYY-MM-DD format. Optional."""
+
+    to_date: str | None = None
+    """End date for filtering data, in YYYY-MM-DD format. Optional."""
+
+    filters: dict[str, Any] | None = None
+    """Additional filters for the API request. Optional."""
+
+
+@dataclass(kw_only=True)
 class SimployerDatasetSettings(DatasetSettings):
-    """Settings for Simployer dataset."""
+    data_product: SimployerDataProducts
+    """Data product associated with this dataset (e.g., "employees").
 
-    method: HttpMethod = HttpMethod.GET
-    """HTTP method to use for the request, e.g., GET, POST, PUT, DELETE, PATCH."""
+    Used to determine the API endpoint and other settings.
+    """
 
-    endpoint: str
-    """API endpoint to interact with, e.g., '/data'."""
-
-    data: Any | None = None
-    """Data to send in the body of the request."""
-
-    json: dict[str, Any] | None = None
-    """JSON data to send in the body of the request."""
-
-    files: list[Any] | None = None
-    """Files to send in the request."""
-
-    params: dict[str, Any] | None = None
-    """Parameters to include in the request URL."""
-
-    headers: dict[str, Any] | None = None
-    """Headers to include in the request."""
+    read: ReadSettings = field(default_factory=ReadSettings)
+    """Settings for read()."""
 
 
 SimployerDatasetSettingsType = TypeVar(
@@ -97,12 +95,7 @@ SimployerLinkedServiceType = TypeVar(
 
 @dataclass(kw_only=True)
 class SimployerDataset(
-    TabularDataset[
-        SimployerLinkedServiceType,
-        SimployerDatasetSettingsType,
-        PandasSerializer,
-        PandasDeserializer,
-    ],
+    TabularDataset[SimployerLinkedServiceType, SimployerDatasetSettingsType, PandasSerializer, PandasDeserializer],
     Generic[SimployerLinkedServiceType, SimployerDatasetSettingsType],
 ):
     linked_service: SimployerLinkedServiceType
@@ -119,160 +112,136 @@ class SimployerDataset(
     def type(self) -> ResourceType:
         return ResourceType.SIMPLOYER_DATASET
 
-    def _send_request(self, error_cls: builtins.type[CreateError] | builtins.type[ReadError], **kwargs: Any) -> requests.Response:
+    @property
+    def supports_checkpoint(self) -> bool:
         """
-        Send an HTTP request to the Simployer API.
+        Whether this provider supports incremental loads via ``self.checkpoint``.
 
-        Args:
-            error_cls: The error class to raise for non-auth errors (CreateError or ReadError).
-            kwargs: Additional keyword arguments to pass to the request.
+        This implementation uses a simple dictionary-based checkpoint structure to
+        support resuming paginated reads:
+
+        - On a full load, ``self.checkpoint`` is expected to be empty (``{}``) or
+          ``None``. In this case, :meth:`read` starts from page ``1``.
+        - After each successfully read page, :meth:`read` sets
+          ``self.checkpoint = {"last_page": page}``, where ``page`` is the last
+          completed page number.
+        - On a subsequent run, if ``self.checkpoint`` contains a ``"last_page"``
+          entry, :meth:`read` resumes from ``last_page + 1`` and continues
+          fetching data from the Simployer API.
+
+        This allows consumers to perform incremental loads by persisting and
+        reusing the checkpoint between executions, avoiding re-reading pages that
+        were already processed successfully.
 
         Returns:
-            requests.Response: The HTTP response.
-
-        Raises:
-            AuthenticationError: If authentication fails (401).
-            AuthorizationError: If authorization fails (403).
-            LinkedServiceConnectionError: If session is not initialized.
-            error_cls: For other HTTP errors or request failures.
+             bool: True if checkpointing is supported, False otherwise.
         """
-        try:
-            session = self.linked_service.session
-        except LinkedServiceConnectionError as exc:
-            raise LinkedServiceConnectionError(
-                message="Failed to establish connection to linked service",
-                details={"type": self.linked_service.type.value},
-            ) from exc
+        return True
 
-        host = (self.linked_service.settings.host or "").rstrip("/")
-        api_version = str(self.linked_service.settings.api_version or "").strip("/")
-        endpoint = str(self.settings.endpoint or "")
-        if endpoint and not endpoint.startswith("/"):
-            endpoint = f"/{endpoint}"
-
-        url = f"{host}/api/{api_version}{endpoint}"
-
-        logger.debug("Sending %s request to %s", self.settings.method, url)
-
-        # Merge headers
-        request_headers = dict(self.settings.headers or {})
-
-        try:
-            response = session.request(
-                method=self.settings.method,
-                url=url,
-                data=self.settings.data,
-                json=self.settings.json,
-                files=self.settings.files,
-                params=self.settings.params,
-                headers=request_headers if request_headers else None,
-                timeout=self.linked_service.settings.timeout_seconds or 30,
-                **kwargs,
-            )
-            response.raise_for_status()
-            return response
-        except requests.HTTPError as exc:
-            status_code: int = exc.response.status_code if exc.response else 0
-            if status_code == 401:
-                raise AuthenticationError(
-                    message="Authentication failed",
-                    status_code=status_code,
-                    details={"type": self.type.value, "url": url},
-                ) from exc
-            elif status_code == 403:
-                raise AuthorizationError(
-                    message="Authorization failed",
-                    status_code=status_code,
-                    details={"type": self.type.value, "url": url},
-                ) from exc
-            else:
-                raise error_cls(
-                    message=f"HTTP error occurred: {exc}",
-                    status_code=status_code or 0,
-                    details={"type": self.type.value, "url": url},
-                ) from exc
-        except requests.RequestException as exc:
-            raise error_cls(
-                message=f"Request failed: {exc}",
-                details={"type": self.type.value, "url": url},
-            ) from exc
-        except ResourceException as exc:
-            exc.details.update({"type": self.type.value})
-            raise error_cls(
-                message=exc.message,
-                status_code=exc.status_code or 0,
-                details=exc.details,
-            ) from exc
-
-    def create(self, **kwargs: Any) -> None:
+    def read(self) -> None:
         """
-        Create data at the specified endpoint.
+        Read data from the requested endpoint of the Simployer API.
 
         Args:
-            kwargs: Additional keyword arguments to pass to the request.
+            None
+
+        Returns:
+            None
 
         Raises:
-            AuthenticationError: If the authentication fails.
-            AuthorizationError: If the authorization fails.
-            ConnectionError: If the connection fails.
-            CreateError: If the create error occurs.
+            ReadError: If reading data fails.
         """
-        response = self._send_request(CreateError, **kwargs)
+        logger.info("Reading data from Simployer API for product: %s", self.settings.data_product)
+        session = self.linked_service.session
 
-        if response.content and self.deserializer:
-            self.output = self.deserializer(response.content)
-            self._set_schema(self.output)
+        # Determine if this is a full or incremental load
+        # Empty checkpoint ({}) means full load, populated means resume from last position
+        if self.checkpoint:
+            # Incremental: resume from last successful page
+            page = self.checkpoint.get("last_page", 0) + 1
+            logger.info("Resuming incremental load from page %s", page)
         else:
-            self.output = pd.DataFrame()
+            # Full load: start from beginning
+            page = 1
+            logger.info("Starting full load from page 1")
 
-    def read(self, **kwargs: Any) -> None:
-        """
-        Read data from the specified endpoint.
+        all_records = []
+        try:
+            while True:
+                response = session.request(
+                    method="GET",
+                    url=self._build_url(),
+                    params={
+                        "page": page,
+                        "pageSize": self.settings.read.page_size,
+                        "fromDate": self.settings.read.from_date,
+                        "toDate": self.settings.read.to_date,
+                        **(self.settings.read.filters or {}),
+                    },
+                )
+                resp_json = response.json()
+                records = resp_json.get("records", [])
+                # Note: "has_next_p" is the exact field name used by the Simployer API.
+                # The "_p" suffix is part of the API's naming convention and must not be changed.
+                has_next = resp_json.get("has_next_p", False)
+                all_records.extend(records)
 
-        Args:
-            kwargs: Additional keyword arguments to pass to the request.
+                if not has_next:
+                    break
+                page += 1
+            self.output = pd.DataFrame(all_records)
+            # Update checkpoint only after successful processing of all pages and DataFrame construction
+            self.checkpoint = {"last_page": page - 1}
+        except Exception as exc:
+            self.output = pd.DataFrame(all_records)  # partial results
+            # On error, checkpoint is the last successfully completed page
+            self.checkpoint = {"last_page": page - 1} if page > 1 else {}
+            logger.error("Failed to read resource: %s", exc)
+            raise ReadError(
+                message=f"Failed to read data from Simployer API for product {self.settings.data_product} at page {page}",
+                details={
+                    "last_successful_page": self.checkpoint.get("last_page"),
+                    "failed_page": page,
+                    "data_product": self.settings.data_product,
+                    "settings": self.settings.read.serialize(),
+                },
+            ) from exc
 
-        Raises:
-            AuthenticationError: If the authentication fails.
-            AuthorizationError: If the authorization fails.
-            ConnectionError: If the connection fails.
-            ReadError: If the read error occurs.
-        """
-        response = self._send_request(ReadError, **kwargs)
+    def create(self) -> None:
+        raise NotSupportedError("Method (create) not supported by Simployer provider.")
 
-        if response.content and self.deserializer:
-            self.output = self.deserializer(response.content)
-            self._set_schema(self.output)
-            self.next = self.deserializer.get_next(response.content)
-            if self.next:
-                self.cursor = self.deserializer.get_end_cursor(response.content)
-        else:
-            self.next = False
-            self.cursor = None
-            self.output = pd.DataFrame()
+    def delete(self) -> None:
+        raise NotSupportedError("Method (delete) not supported by Simployer provider.")
 
-    def delete(self, **kwargs: Any) -> NoReturn:
+    def rename(self) -> None:
+        raise NotSupportedError("Method (rename) not supported by Simployer provider.")
 
-        raise NotImplementedError("Delete operation is not supported for Simployer datasets")
-
-    def update(self, **kwargs: Any) -> NoReturn:
-        raise NotImplementedError("Update operation is not supported for Simployer datasets")
-
-    def rename(self, **kwargs: Any) -> NoReturn:
-        raise NotImplementedError("Rename operation is not supported for Simployer datasets")
+    def list(self) -> None:
+        raise NotSupportedError("Method (list) not supported by Simployer provider.")
 
     def close(self) -> None:
-        """
-        Close the dataset.
-        """
-        self.linked_service.close()
+        """Release any resources held by the dataset.
 
-    def _set_schema(self, content: pd.DataFrame) -> None:
+        For Simployer, the dataset holds no resources directly.
+        Connection lifecycle is managed by the linked service.
         """
-        Set the schema from the content.
 
-        Args:
-            content: The content to set the schema from.
+    def update(self) -> None:
+        raise NotSupportedError("Method (update) not supported by Simployer provider.")
+
+    def upsert(self) -> None:
+        raise NotSupportedError("Method (upsert) not supported by Simployer provider.")
+
+    def purge(self) -> None:
+        raise NotSupportedError("Method (purge) not supported by Simployer provider.")
+
+    def _build_url(self) -> str:
         """
-        dtypes = content.convert_dtypes(dtype_backend="pyarrow").dtypes.to_dict()
-        self.schema = {str(col): str(dtype) for col, dtype in dtypes.items()}
+        Helper to build the full API URL with optional path parameters.
+        """
+        if self.settings.data_product:
+            base_endpoint = get_endpoint_for_product(self.settings.data_product)
+        host = self.linked_service.settings.host.rstrip("/")
+        if self.settings.data_product:
+            return f"{host}{base_endpoint}"
+        raise ValueError("Cannot build URL: data_product is required to determine endpoint.")

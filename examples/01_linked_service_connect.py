@@ -46,12 +46,12 @@ def main() -> None:
 
     # Create the linked service
     linked_service = SimployerLinkedService(
-        id=uuid4(),
-        name="Simployer Linked Service",
-        version="1.0.0",
         settings=settings,
+        id=str(uuid4()),
+        name="Simployer Linked Service",
+        description="Linked service for connecting to Simployer API",
+        version="1.0",
     )
-
     try:
         logger.info("Testing connection to Simployer...")
         success, message = linked_service.test_connection()
