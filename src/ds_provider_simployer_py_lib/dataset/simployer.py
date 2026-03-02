@@ -7,21 +7,27 @@ Simployer Dataset
 This module implements a dataset for Simployer APIs.
 
 Example:
+    >>> from uuid import uuid4
     >>> dataset = SimployerDataset(
-    ...     deserializer=PandasDeserializer(format=DatasetStorageFormatType.JSON),
-    ...     serializer=PandasSerializer(format=DatasetStorageFormatType.JSON),
+    ...     id=uuid4(),
+    ...     name="employees_dataset",
+    ...     version="1.0.0",
     ...     settings=SimployerDatasetSettings(
-    ...         endpoint="/data",
-    ...         method="GET",
+    ...         data_product=SimployerDataProducts.EMPLOYEES,
+    ...         read=ReadSettings(page_size=100),
     ...     ),
     ...     linked_service=SimployerLinkedService(
+    ...         id=uuid4(),
+    ...         name="simployer_connection",
+    ...         version="1.0.0",
     ...         settings=SimployerLinkedServiceSettings(
-    ...             host="https://api.example.com",
     ...             client_id="your_client_id",
     ...             client_secret="your_client_secret",
     ...         ),
     ...     ),
     ... )
+    >>> linked_service = dataset.linked_service
+    >>> linked_service.connect()
     >>> dataset.read()
     >>> data = dataset.output
 """
@@ -161,23 +167,29 @@ class SimployerDataset(
             page = self.checkpoint.get("last_page", 0) + 1
             logger.info("Resuming incremental load from page %s", page)
         else:
-            # Full load: start from beginning
-            page = 1
-            logger.info("Starting full load from page 1")
+            # Full load: start from configured page (default is 1)
+            page = self.settings.read.page
+            logger.info("Starting full load from page %s", page)
 
         all_records = []
         try:
             while True:
+                # Build params dict, only including non-None optional values
+                params: dict[str, Any] = {
+                    "page": page,
+                    "pageSize": self.settings.read.page_size,
+                }
+                if self.settings.read.from_date is not None:
+                    params["fromDate"] = self.settings.read.from_date
+                if self.settings.read.to_date is not None:
+                    params["toDate"] = self.settings.read.to_date
+                if self.settings.read.filters:
+                    params.update(self.settings.read.filters)
+
                 response = session.request(
                     method="GET",
                     url=self._build_url(),
-                    params={
-                        "page": page,
-                        "pageSize": self.settings.read.page_size,
-                        "fromDate": self.settings.read.from_date,
-                        "toDate": self.settings.read.to_date,
-                        **(self.settings.read.filters or {}),
-                    },
+                    params=params,
                 )
                 resp_json = response.json()
                 records = resp_json.get("records", [])
@@ -251,9 +263,14 @@ class SimployerDataset(
         """
         Helper to build the full API URL with optional path parameters.
         """
-        if self.settings.data_product:
-            base_endpoint = get_endpoint_for_product(self.settings.data_product)
+        if not self.settings.data_product:
+            raise ValueError("Cannot build URL: data_product is required to determine endpoint.")
+
+        base_endpoint = get_endpoint_for_product(self.settings.data_product)
+        if base_endpoint is None:
+            raise ValueError(
+                f"Cannot build URL: data_product '{self.settings.data_product.value}' is not supported or not yet mapped."
+            )
+
         host = self.linked_service.settings.host.rstrip("/")
-        if self.settings.data_product:
-            return f"{host}{base_endpoint}"
-        raise ValueError("Cannot build URL: data_product is required to determine endpoint.")
+        return f"{host}{base_endpoint}"

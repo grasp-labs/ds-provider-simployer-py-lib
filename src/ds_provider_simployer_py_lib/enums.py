@@ -9,7 +9,7 @@ Example:
     'ds.resource.linked_service.simployer'
     >>> ResourceType.SIMPLOYER_DATASET
     'ds.resource.dataset.simployer'
-    >>> SimployerDataProduct.EMPLOYEES
+    >>> SimployerDataProducts.EMPLOYEES
     'employees'
 """
 
@@ -141,14 +141,17 @@ def get_endpoint_for_product(data_product: SimployerDataProducts) -> str | None:
         SimployerDataProducts.ABSENCE: "/v1/absence",
         SimployerDataProducts.ABSENCE_TYPES: "/v1/absence/absencetypes",
         SimployerDataProducts.ADDRESSES: "/v1/contacts/addresses",
-        SimployerDataProducts.ELECTRONIC_ADDRESSES: "/v1/contacts/electronicAddresses",
+        SimployerDataProducts.CONTACTS: "/v1/contacts",
         SimployerDataProducts.DOCUMENTS: "/v1/documents/persons",
+        SimployerDataProducts.DOCUMENTS_PERSONS: "/v1/documents/persons",
+        SimployerDataProducts.ELECTRONIC_ADDRESSES: "/v1/contacts/electronicAddresses",
         SimployerDataProducts.EMPLOYEES: "/v1/employees",
         SimployerDataProducts.EMPLOYMENTS: "/v1/employments",
         SimployerDataProducts.EMPLOYMENTS_CATEGORIES: "/v1/employments/categories",
         SimployerDataProducts.EMPLOYMENTS_CONTRACTS: "/v1/employments/contracts",
         SimployerDataProducts.EXTENDED_PROPERTY_TYPES: "/v1/extendedPropertyTypes",
         SimployerDataProducts.EXTENDED_PROPERTY_TYPES_VALUES: "/v1/extendedPropertyTypes/values",
+        SimployerDataProducts.LEAVE: "/v1/leave",
         SimployerDataProducts.LEAVE_PERIODS: "/v1/leave/leaveperiods",
         SimployerDataProducts.ORGANIZATIONS: "/v1/organizations",
         SimployerDataProducts.ORGANIZATIONS_GROUPS: "/v1/organizations/groups",
@@ -156,13 +159,15 @@ def get_endpoint_for_product(data_product: SimployerDataProducts) -> str | None:
         SimployerDataProducts.ORGANIZATIONS_GROUPS_CATEGORIES: "/v1/organizations/groups/categories",
         SimployerDataProducts.ORGANIZATIONS_HIERARCHY: "/v1/organizations/hierarchy",
         SimployerDataProducts.PERSONS: "/v1/persons",
-        SimployerDataProducts.PERSONS_IDENTITY_IDENTIFIERS: "/v1/persons/identityIdentifiers",
         SimployerDataProducts.PERSONS_AUDIT_LOGS: "/v1/persons/auditLogs",
         SimployerDataProducts.PERSONS_CHILDREN: "/v1/persons/children",
         SimployerDataProducts.PERSONS_EXTENDED_PROPERTIES: "/v1/persons/extendedProperties",
+        SimployerDataProducts.PERSONS_IDENTITY_IDENTIFIERS: "/v1/persons/identityIdentifiers",
+        SimployerDataProducts.SICK_LEAVE: "/v1/sickLeave",
         SimployerDataProducts.SICK_LEAVE_PERIODS: "/v1/sickLeave/sickleaveperiods",
         SimployerDataProducts.TENANTS: "/v1/tenants",
         SimployerDataProducts.TENANTS_USERS: "/v1/tenants/users",
+        SimployerDataProducts.VACATION: "/v1/vacation",
         SimployerDataProducts.VACATION_DAYS: "/v1/vacation/vacationdays",
         SimployerDataProducts.VACATION_PERIODS: "/v1/vacation/vacationperiods",
     }
