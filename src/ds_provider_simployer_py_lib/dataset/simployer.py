@@ -152,7 +152,7 @@ class SimployerDataset(
             ReadError: If reading data fails.
         """
         logger.info("Reading data from Simployer API for product: %s", self.settings.data_product)
-        session = self.linked_service.session
+        session = self.linked_service.connection
 
         # Determine if this is a full or incremental load
         # Empty checkpoint ({}) means full load, populated means resume from last position
@@ -192,7 +192,7 @@ class SimployerDataset(
             self.output = pd.DataFrame(all_records)
             # Update checkpoint only after successful processing of all pages and DataFrame construction
             self.checkpoint = {
-                "last_page": page - 1,
+                "last_page": page,
                 "page_size": self.settings.read.page_size,
                 "from_date": self.settings.read.from_date,
                 "to_date": self.settings.read.to_date,

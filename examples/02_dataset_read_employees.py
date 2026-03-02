@@ -47,7 +47,8 @@ from ds_provider_simployer_py_lib.dataset.simployer import (
 )
 from ds_provider_simployer_py_lib.enums import SimployerDataProducts
 from ds_provider_simployer_py_lib.linked_service.simployer import (
-    SimployerLinkedServiceSettings,SimployerLinkedService
+    SimployerLinkedService,
+    SimployerLinkedServiceSettings,
 )
 
 Logger.configure(level=logging.INFO)

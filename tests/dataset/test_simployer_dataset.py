@@ -237,7 +237,7 @@ def test_checkpoint_updated_after_success():
     dataset.read()
 
     # Two pages read successfully, checkpoint should reflect last page and settings
-    assert dataset.checkpoint["last_page"] == 1
+    assert dataset.checkpoint["last_page"] == 2
     assert "page_size" in dataset.checkpoint
     assert "from_date" in dataset.checkpoint
     assert "to_date" in dataset.checkpoint

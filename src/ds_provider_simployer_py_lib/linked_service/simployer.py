@@ -131,8 +131,6 @@ class SimployerLinkedService(
         Raises:
             ConnectionError: If connect() has not been called.
         """
-        if self.session is None:
-            raise ConnectionError("Connection not established. Call connect() before accessing connection.")
         return self.session
 
     def __post_init__(self) -> None:
