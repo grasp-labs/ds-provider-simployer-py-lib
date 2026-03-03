@@ -171,7 +171,7 @@ class SimployerDataset(
             page = self.settings.read.page
             logger.info("Starting full load from page %s", page)
 
-        all_records = []
+        all_records: list[dict[str, Any]] = []
         try:
             while True:
                 # Build params dict, only including non-None optional values
@@ -191,18 +191,26 @@ class SimployerDataset(
                     url=self._build_url(),
                     params=params,
                 )
+
                 resp_json = response.json()
                 records = resp_json.get("records", [])
+                all_records.extend(records)
+
                 # Note: "has_next_page" is the exact field name used by the Simployer API.
                 # The "_page" suffix is part of the API's naming convention and must not be changed.
                 has_next = resp_json.get("has_next_page", False)
-                all_records.extend(records)
 
                 if not has_next:
                     break
                 page += 1
+
             self.output = pd.DataFrame(all_records)
-            # Update checkpoint only after successful processing of all pages and DataFrame construction
+
+            # Set schema from the output DataFrame
+            if not self.output.empty:
+                self._set_schema(self.output)
+
+            # Update checkpoint only after successful processing of all pages
             self.checkpoint = {
                 "last_page": page,
                 "page_size": self.settings.read.page_size,
@@ -212,9 +220,11 @@ class SimployerDataset(
             }
         except Exception as exc:
             self.output = pd.DataFrame(all_records)  # partial results
-            # On error, checkpoint is the last successfully completed page
+            # On error, checkpoint is the last successfully completed page (page - 1).
+            # If error occurs on first page, last_page will be 0, and resume logic
+            # (last_page + 1) will correctly retry from page 1.
             self.checkpoint = {
-                "last_page": page - 1 if page > 1 else 0,
+                "last_page": page - 1,
                 "page_size": self.settings.read.page_size,
                 "from_date": self.settings.read.from_date,
                 "to_date": self.settings.read.to_date,
@@ -258,6 +268,17 @@ class SimployerDataset(
 
     def purge(self) -> None:
         raise NotSupportedError("Method (purge) not supported by Simployer provider.")
+
+    def _set_schema(self, content: pd.DataFrame) -> None:
+        """
+        Set the schema from the content.
+
+        Args:
+            content: The content to set the schema from.
+        """
+        self.schema = {
+            str(col): str(dtype) for col, dtype in content.convert_dtypes(dtype_backend="pyarrow").dtypes.to_dict().items()
+        }
 
     def _build_url(self) -> str:
         """
