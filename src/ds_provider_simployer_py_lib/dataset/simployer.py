@@ -56,7 +56,7 @@ logger = Logger.get_logger(__name__, package=True)
 class ReadSettings(Serializable):
     """Settings specific to the read() operation.
 
-    These settings only apply when reading data from the database
+    These settings only apply when reading data from the API
     and do not affect create(), update() or delete() operations
 
     """
@@ -148,98 +148,49 @@ class SimployerDataset(
         """
         Read data from the requested endpoint of the Simployer API.
 
-        Args:
-            None
-
-        Returns:
-            None
-
         Raises:
             ReadError: If reading data fails.
         """
         logger.info("Reading data from Simployer API for product: %s", self.settings.data_product)
         session = self.linked_service.connection
 
-        # Determine if this is a full or incremental load
-        # Empty checkpoint ({}) means full load, populated means resume from last position
-        if self.checkpoint:
-            # Incremental: resume from last successful page
-            page = self.checkpoint.get("last_page", 0) + 1
-            logger.info("Resuming incremental load from page %s", page)
-        else:
-            # Full load: start from configured page (default is 1)
-            page = self.settings.read.page
-            logger.info("Starting full load from page %s", page)
+        # Determine starting page: resume from checkpoint or start fresh
+        page = self.checkpoint.get("last_page", 0) + 1 if self.checkpoint else self.settings.read.page
+        logger.info("%s load from page %s", "Resuming incremental" if self.checkpoint else "Starting full load", page)
 
         all_records: list[dict[str, Any]] = []
+        last_successful_page = page - 1  # Track last completed page
+
         try:
             while True:
-                # Build params dict, only including non-None optional values
-                params: dict[str, Any] = {
-                    "page": page,
-                    "pageSize": self.settings.read.page_size,
-                }
-                if self.settings.read.from_date is not None:
-                    params["fromDate"] = self.settings.read.from_date
-                if self.settings.read.to_date is not None:
-                    params["toDate"] = self.settings.read.to_date
-                if self.settings.read.filters:
-                    params.update(self.settings.read.filters)
-
-                response = session.request(
-                    method="GET",
-                    url=self._build_url(),
-                    params=params,
-                )
-
+                params = self._build_params(page)
+                response = session.request(method="GET", url=self._build_url(), params=params)
                 resp_json = response.json()
-                records = resp_json.get("records", [])
-                all_records.extend(records)
 
-                # Note: "has_next_page" is the exact field name used by the Simployer API.
-                # The "_page" suffix is part of the API's naming convention and must not be changed.
-                has_next = resp_json.get("has_next_page", False)
+                all_records.extend(resp_json.get("records", []))
+                last_successful_page = page
 
-                if not has_next:
+                if not resp_json.get("has_next_page", False):
                     break
                 page += 1
 
-            self.output = pd.DataFrame(all_records)
-
-            # Set schema from the output DataFrame
-            if not self.output.empty:
-                self._set_schema(self.output)
-
-            # Update checkpoint only after successful processing of all pages
-            self.checkpoint = {
-                "last_page": page,
-                "page_size": self.settings.read.page_size,
-                "from_date": self.settings.read.from_date,
-                "to_date": self.settings.read.to_date,
-                "data_product": self.settings.data_product.value,
-            }
         except Exception as exc:
-            self.output = pd.DataFrame(all_records)  # partial results
-            # On error, checkpoint is the last successfully completed page (page - 1).
-            # If error occurs on first page, last_page will be 0, and resume logic
-            # (last_page + 1) will correctly retry from page 1.
-            self.checkpoint = {
-                "last_page": page - 1,
-                "page_size": self.settings.read.page_size,
-                "from_date": self.settings.read.from_date,
-                "to_date": self.settings.read.to_date,
-                "data_product": self.settings.data_product.value,
-            }
             logger.error("Failed to read resource: %s", exc)
             raise ReadError(
                 message=f"Failed to read data from Simployer API for product {self.settings.data_product} at page {page}",
                 details={
-                    "last_successful_page": self.checkpoint.get("last_page"),
+                    "last_successful_page": last_successful_page,
                     "failed_page": page,
                     "data_product": self.settings.data_product,
                     "settings": self.settings.read.serialize(),
                 },
             ) from exc
+
+        finally:
+            self.output = pd.DataFrame(all_records)
+            if not self.output.empty:
+                self._set_schema(self.output)
+            self.checkpoint = self._build_checkpoint(last_successful_page)
 
     def create(self) -> None:
         raise NotSupportedError("Method (create) not supported by Simployer provider.")
@@ -270,22 +221,36 @@ class SimployerDataset(
         raise NotSupportedError("Method (purge) not supported by Simployer provider.")
 
     def _set_schema(self, content: pd.DataFrame) -> None:
-        """
-        Set the schema from the content.
-
-        Args:
-            content: The content to set the schema from.
-        """
+        """Set the schema from the DataFrame content."""
         self.schema = {
             str(col): str(dtype) for col, dtype in content.convert_dtypes(dtype_backend="pyarrow").dtypes.to_dict().items()
+        }
+
+    def _build_params(self, page: int) -> dict[str, Any]:
+        """Build query parameters for the API request."""
+        params: dict[str, Any] = {"page": page, "pageSize": self.settings.read.page_size}
+        if self.settings.read.from_date:
+            params["fromDate"] = self.settings.read.from_date
+        if self.settings.read.to_date:
+            params["toDate"] = self.settings.read.to_date
+        if self.settings.read.filters:
+            params.update(self.settings.read.filters)
+        return params
+
+    def _build_checkpoint(self, last_page: int) -> dict[str, Any]:
+        """Build checkpoint dictionary for incremental load support."""
+        return {
+            "last_page": last_page,
+            "page_size": self.settings.read.page_size,
+            "from_date": self.settings.read.from_date,
+            "to_date": self.settings.read.to_date,
+            "data_product": self.settings.data_product.value,
         }
 
     def _build_url(self) -> str:
         """
         Helper to build the full API URL with optional path parameters.
         """
-        if not self.settings.data_product:
-            raise ValueError("Cannot build URL: data_product is required to determine endpoint.")
 
         base_endpoint = get_endpoint_for_product(self.settings.data_product)
         if base_endpoint is None:
