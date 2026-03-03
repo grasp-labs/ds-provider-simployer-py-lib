@@ -165,12 +165,14 @@ class SimployerDataset(
             while True:
                 params = self._build_params(page)
                 response = session.request(method="GET", url=self._build_url(), params=params)
-                resp_json = response.json()
+                records = response.json()  # API returns array directly
 
-                all_records.extend(resp_json.get("records", []))
+                all_records.extend(records if isinstance(records, list) else [])
                 last_successful_page = page
 
-                if not resp_json.get("has_next_page", False):
+                # Pagination info is in response headers (x-has-next-page)
+                has_next = response.headers.get("x-has-next-page", "false").lower() == "true"
+                if not has_next:
                     break
                 page += 1
 

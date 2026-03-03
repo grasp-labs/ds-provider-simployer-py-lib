@@ -18,10 +18,11 @@ from ds_provider_simployer_py_lib.linked_service.simployer import SimployerLinke
 
 
 class DummyResponse:
-    """Mock HTTP response."""
+    """Mock HTTP response with headers support."""
 
-    def __init__(self, json_data):
+    def __init__(self, json_data: list, has_next_page: bool = False):
         self._json = json_data
+        self.headers = {"x-has-next-page": str(has_next_page).lower()}
 
     def json(self):
         return self._json
@@ -89,14 +90,14 @@ def make_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES, checkp
 
 def test_read_returns_none():
     """read() must return None per contract."""
-    responses = [DummyResponse({"records": [], "has_next_page": False})]
+    responses = [DummyResponse([], has_next_page=False)]
     dataset = make_dataset(responses)
     assert dataset.read() is None
 
 
 def test_read_populates_output():
     """read() must populate self.output with a DataFrame."""
-    responses = [DummyResponse({"records": [{"id": 1, "name": "Alice"}], "has_next_page": False})]
+    responses = [DummyResponse([{"id": 1, "name": "Alice"}], has_next_page=False)]
     dataset = make_dataset(responses)
     dataset.read()
     assert dataset.output is not None
@@ -107,14 +108,7 @@ def test_read_populates_output():
 
 def test_read_single_page():
     """read() handles single page response correctly."""
-    responses = [
-        DummyResponse(
-            {
-                "records": [{"id": 1}, {"id": 2}],
-                "has_next_page": False,
-            }
-        )
-    ]
+    responses = [DummyResponse([{"id": 1}, {"id": 2}], has_next_page=False)]
     dataset = make_dataset(responses)
     dataset.read()
     assert len(dataset.output) == 2
@@ -123,9 +117,9 @@ def test_read_single_page():
 def test_read_multiple_pages():
     """read() handles pagination internally, concatenating all pages."""
     responses = [
-        DummyResponse({"records": [{"id": 1}], "has_next_page": True}),
-        DummyResponse({"records": [{"id": 2}], "has_next_page": True}),
-        DummyResponse({"records": [{"id": 3}], "has_next_page": False}),
+        DummyResponse([{"id": 1}], has_next_page=True),
+        DummyResponse([{"id": 2}], has_next_page=True),
+        DummyResponse([{"id": 3}], has_next_page=False),
     ]
     dataset = make_dataset(responses)
     dataset.read()
@@ -135,7 +129,7 @@ def test_read_multiple_pages():
 
 def test_read_empty_result():
     """read() returns empty DataFrame when no records exist (not an error)."""
-    responses = [DummyResponse({"records": [], "has_next_page": False})]
+    responses = [DummyResponse([], has_next_page=False)]
     dataset = make_dataset(responses)
     dataset.read()
     assert dataset.output is not None
@@ -176,8 +170,8 @@ def test_read_error_includes_details():
 def test_read_partial_results_on_error():
     """self.output may contain partial data when error occurs mid-pagination."""
     responses = [
-        DummyResponse({"records": [{"id": 1}], "has_next_page": True}),
-        DummyResponse({"records": [{"id": 2}], "has_next_page": True}),
+        DummyResponse([{"id": 1}], has_next_page=True),
+        DummyResponse([{"id": 2}], has_next_page=True),
         Exception("Failed on page 3"),
     ]
     dataset = make_dataset(responses)
@@ -204,7 +198,7 @@ def test_supports_checkpoint_returns_true():
 
 def test_checkpoint_empty_means_full_load():
     """Empty checkpoint ({}) means full load starting from page 1."""
-    responses = [DummyResponse({"records": [{"id": 1}], "has_next_page": False})]
+    responses = [DummyResponse([{"id": 1}], has_next_page=False)]
     dataset = make_dataset(responses, checkpoint={})
     dataset.read()
 
@@ -215,7 +209,7 @@ def test_checkpoint_empty_means_full_load():
 
 def test_checkpoint_populated_resumes():
     """Populated checkpoint resumes from last_page + 1."""
-    responses = [DummyResponse({"records": [{"id": 5}], "has_next_page": False})]
+    responses = [DummyResponse([{"id": 5}], has_next_page=False)]
     dataset = make_dataset(
         responses,
         checkpoint={"last_page": 3, "page_size": 100, "from_date": None, "to_date": None},
@@ -230,8 +224,8 @@ def test_checkpoint_populated_resumes():
 def test_checkpoint_updated_after_success():
     """Checkpoint is updated after successful read."""
     responses = [
-        DummyResponse({"records": [{"id": 1}], "has_next_page": True}),
-        DummyResponse({"records": [{"id": 2}], "has_next_page": False}),
+        DummyResponse([{"id": 1}], has_next_page=True),
+        DummyResponse([{"id": 2}], has_next_page=False),
     ]
     dataset = make_dataset(responses, checkpoint={})
     dataset.read()
@@ -246,8 +240,8 @@ def test_checkpoint_updated_after_success():
 def test_checkpoint_on_error_reflects_last_successful_page():
     """On error, checkpoint reflects last successfully completed page."""
     responses = [
-        DummyResponse({"records": [{"id": 1}], "has_next_page": True}),
-        DummyResponse({"records": [{"id": 2}], "has_next_page": True}),
+        DummyResponse([{"id": 1}], has_next_page=True),
+        DummyResponse([{"id": 2}], has_next_page=True),
         Exception("Failed on page 3"),
     ]
     dataset = make_dataset(responses, checkpoint={})
