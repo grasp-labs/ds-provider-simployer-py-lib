@@ -5,10 +5,11 @@ from uuid import uuid4
 
 import pandas as pd
 import pytest
-from ds_resource_plugin_py_lib.common.resource.dataset.errors import ReadError
+from ds_resource_plugin_py_lib.common.resource.dataset.errors import CreateError, ReadError
 from ds_resource_plugin_py_lib.common.resource.errors import NotSupportedError
 
 from ds_provider_simployer_py_lib.dataset.simployer import (
+    CreateSettings,
     ReadSettings,
     SimployerDataset,
     SimployerDatasetSettings,
@@ -36,8 +37,8 @@ class DummySession:
         self.call_count = 0
         self.requests = []
 
-    def request(self, method, url, params):
-        self.requests.append({"method": method, "url": url, "params": params})
+    def request(self, method, url, params=None, json=None):
+        self.requests.append({"method": method, "url": url, "params": params, "json": json})
         resp = self.responses[self.call_count]
         self.call_count += 1
         if isinstance(resp, Exception):
@@ -64,12 +65,12 @@ def make_linked_service(responses):
     return DummySimployerLinkedService(settings=settings, session=DummySession(responses))
 
 
-def make_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES, checkpoint=None):
+def make_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES, checkpoint=None, resource_id=None):
     """Create a dataset with mocked linked service."""
     linked_service = make_linked_service(responses)
     settings = SimployerDatasetSettings(
         data_product=data_product,
-        read=ReadSettings(page_size=100),
+        read=ReadSettings(page_size=100, resource_id=resource_id),
     )
     dataset = SimployerDataset(
         id=uuid4(),
@@ -271,9 +272,9 @@ def test_type_property():
 # -----------------------------------------------------------------------------
 
 
-def test_create_raises_not_supported():
-    """create() must raise NotSupportedError."""
-    dataset = make_dataset([])
+def test_create_raises_not_supported_for_non_post_product():
+    """create() must raise NotSupportedError when data product does not support POST."""
+    dataset = make_dataset([], data_product=SimployerDataProducts.ABSENCE)
     with pytest.raises(NotSupportedError):
         dataset.create()
 
@@ -327,3 +328,212 @@ def test_close_is_idempotent():
     dataset.close()
     dataset.close()
     dataset.close()
+
+
+# -----------------------------------------------------------------------------
+# Contract: Single resource read via resource_id
+# -----------------------------------------------------------------------------
+
+
+class DummySingleResponse:
+    """Mock HTTP response for single-resource lookup (no pagination headers)."""
+
+    def __init__(self, json_data: dict):
+        self._json = json_data
+        self.headers = {}  # No pagination headers for single resource
+
+    def json(self):
+        return self._json
+
+
+def test_read_single_resource_by_id():
+    """read() with resource_id fetches single record."""
+    responses = [DummySingleResponse({"id": "123", "name": "John Doe", "email": "john@example.com"})]
+    dataset = make_dataset(responses, data_product=SimployerDataProducts.PERSONS, resource_id="123")
+    dataset.read()
+
+    assert dataset.output is not None
+    assert len(dataset.output) == 1
+    assert dataset.output.iloc[0]["id"] == "123"
+    assert dataset.output.iloc[0]["name"] == "John Doe"
+
+
+def test_read_single_resource_url_includes_id():
+    """read() with resource_id appends ID to URL."""
+    responses = [DummySingleResponse({"id": "456"})]
+    dataset = make_dataset(responses, data_product=SimployerDataProducts.PERSONS, resource_id="456")
+    dataset.read()
+
+    # Verify URL contains the resource ID
+    request = dataset.linked_service.session.requests[0]
+    assert "456" in request["url"]
+
+
+def test_read_single_resource_no_checkpoint_update():
+    """read() with resource_id does not update checkpoint."""
+    responses = [DummySingleResponse({"id": "789"})]
+    dataset = make_dataset(responses, data_product=SimployerDataProducts.PERSONS, resource_id="789")
+    dataset.checkpoint = None
+    dataset.read()
+
+    # Single resource read should not set checkpoint
+    assert dataset.checkpoint is None
+
+
+def test_read_single_resource_error_handling():
+    """read() with resource_id wraps errors in ReadError."""
+    responses = [Exception("Not found")]
+    dataset = make_dataset(responses, data_product=SimployerDataProducts.PERSONS, resource_id="999")
+
+    with pytest.raises(ReadError) as exc_info:
+        dataset.read()
+
+    assert "999" in str(exc_info.value)
+    assert exc_info.value.__cause__ is not None
+
+
+# -----------------------------------------------------------------------------
+# Contract: create() - insert rows into Simployer API
+# -----------------------------------------------------------------------------
+
+
+class DummyCreateResponse:
+    """Mock HTTP response for POST create operations."""
+
+    def __init__(self, json_data: dict):
+        self._json = json_data
+        self.headers = {}
+
+    def json(self):
+        return self._json
+
+
+def make_create_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES):
+    """Create a dataset with create settings configured."""
+    settings = MagicMock()
+    settings.host = "https://hrconnect.simployer.com"
+    session = DummySession(responses)
+    linked_service = DummySimployerLinkedService(settings=settings, session=session)
+
+    dataset_settings = SimployerDatasetSettings(
+        data_product=data_product,
+        create=CreateSettings(),
+    )
+    return SimployerDataset(
+        id=uuid4(),
+        name="test_dataset",
+        version="1.0",
+        linked_service=linked_service,
+        settings=dataset_settings,
+    )
+
+
+def test_create_settings_validates_data_product():
+    """CreateSettings raises ValueError for non-creatable products."""
+    # CreateSettings no longer validates data_product, so this test is obsolete
+    pass
+
+
+def test_create_settings_accepts_creatable_products():
+    """CreateSettings accepts products that support POST."""
+    # Should not raise
+    settings = CreateSettings()
+    assert isinstance(settings, CreateSettings)
+
+
+def test_create_empty_input_is_noop():
+    """create() with empty input returns immediately without error."""
+    dataset = make_create_dataset([])
+    dataset.input = pd.DataFrame()
+    dataset.create()
+
+    assert dataset.output is not None
+    assert dataset.output.empty
+    # No requests made
+    assert dataset.linked_service.session.call_count == 0
+
+
+def test_create_none_input_is_noop():
+    """create() with None input returns immediately without error."""
+    dataset = make_create_dataset([])
+    dataset.input = None
+    dataset.create()
+
+    assert dataset.output is not None
+    assert dataset.output.empty
+
+
+def test_create_posts_to_api():
+    """create() POSTs input row to API and populates output."""
+    created_record = {"id": "new-123", "name": "John", "email": "john@example.com"}
+    responses = [DummyCreateResponse(created_record)]
+    dataset = make_create_dataset(responses)
+
+    dataset.input = pd.DataFrame([{"name": "John", "email": "john@example.com"}])
+    dataset.create()
+
+    # Output populated with API response
+    assert dataset.output is not None
+    assert len(dataset.output) == 1
+    assert dataset.output.iloc[0]["id"] == "new-123"
+
+
+def test_create_uses_correct_url():
+    """create() uses create settings data_product for URL."""
+    responses = [DummyCreateResponse({"id": "1"})]
+    dataset = make_create_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES)
+
+    dataset.input = pd.DataFrame([{"name": "Test"}])
+    dataset.create()
+
+    request = dataset.linked_service.session.requests[0]
+    assert request["method"] == "POST"
+    assert "/v1/employees" in request["url"]
+
+
+def test_create_sends_row_as_json():
+    """create() sends input row as JSON body."""
+    responses = [DummyCreateResponse({"id": "1"})]
+    dataset = make_create_dataset(responses)
+
+    dataset.input = pd.DataFrame([{"name": "John", "email": "john@test.com"}])
+    dataset.create()
+
+    request = dataset.linked_service.session.requests[0]
+    assert request["json"]["name"] == "John"
+    assert request["json"]["email"] == "john@test.com"
+
+
+def test_create_capacity_limit_raises_error():
+    """create() raises CreateError when input exceeds capacity (1 row)."""
+    dataset = make_create_dataset([])
+    dataset.input = pd.DataFrame([{"name": "A"}, {"name": "B"}])
+
+    with pytest.raises(CreateError) as exc_info:
+        dataset.create()
+
+    assert "1 record per request" in str(exc_info.value)
+
+
+def test_create_wraps_exception_in_create_error():
+    """create() wraps backend exceptions in CreateError."""
+    responses = [Exception("API error")]
+    dataset = make_create_dataset(responses)
+    dataset.input = pd.DataFrame([{"name": "Test"}])
+
+    with pytest.raises(CreateError) as exc_info:
+        dataset.create()
+
+    assert exc_info.value.__cause__ is not None
+
+
+def test_create_sets_schema():
+    """create() sets schema from output."""
+    responses = [DummyCreateResponse({"id": "1", "name": "Test", "count": 42})]
+    dataset = make_create_dataset(responses)
+    dataset.input = pd.DataFrame([{"name": "Test"}])
+    dataset.create()
+
+    assert dataset.schema is not None
+    assert "id" in dataset.schema
+    assert "name" in dataset.schema

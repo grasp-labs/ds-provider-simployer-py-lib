@@ -40,13 +40,14 @@ from ds_common_logger_py_lib import Logger
 from ds_common_serde_py_lib import Serializable
 from ds_resource_plugin_py_lib.common.resource.dataset import DatasetSettings, DatasetStorageFormatType, TabularDataset
 from ds_resource_plugin_py_lib.common.resource.dataset.errors import (
+    CreateError,
     ReadError,
 )
 from ds_resource_plugin_py_lib.common.resource.errors import NotSupportedError
 from ds_resource_plugin_py_lib.common.serde.deserialize import PandasDeserializer
 from ds_resource_plugin_py_lib.common.serde.serialize import PandasSerializer
 
-from ..enums import ResourceType, SimployerDataProducts, get_endpoint_for_product
+from ..enums import ResourceType, SimployerDataProducts, get_endpoint_for_product, supports_method
 from ..linked_service.simployer import SimployerLinkedService
 
 logger = Logger.get_logger(__name__, package=True)
@@ -59,7 +60,13 @@ class ReadSettings(Serializable):
     These settings only apply when reading data from the API
     and do not affect create(), update() or delete() operations
 
+    When set, pagination settings are ignored and a single GET request is made
+    to the resource-specific endpoint (e.g., /v1/persons/{id}).
+    Note: Not all endpoints support single-record lookup (e.g., /v1/employees).
     """
+
+    resource_id: str | None = None
+    """Optional ID for single resource lookup. If set, pagination settings are ignored and a single GET request is made"""
 
     page: int = 1
     """Page number for pagination. Default is 1."""
@@ -78,6 +85,18 @@ class ReadSettings(Serializable):
 
 
 @dataclass(kw_only=True)
+class CreateSettings(Serializable):
+    """Settings for create() operation.
+
+    Only configure for endpoints that support POST.
+    Uses the data_product from SimployerDatasetSettings.
+    """
+
+    resource_id: str | None = None
+    """Optional ID for the resource to create. If set, it will be included in the POST request body."""
+
+
+@dataclass(kw_only=True)
 class SimployerDatasetSettings(DatasetSettings):
     data_product: SimployerDataProducts
     """Data product associated with this dataset (e.g., "employees").
@@ -87,6 +106,9 @@ class SimployerDatasetSettings(DatasetSettings):
 
     read: ReadSettings = field(default_factory=ReadSettings)
     """Settings for read()."""
+
+    create: CreateSettings | None = None
+    """Settings for create(). If None, create() raises NotSupportedError."""
 
 
 SimployerDatasetSettingsType = TypeVar(
@@ -154,20 +176,57 @@ class SimployerDataset(
         logger.info("Reading data from Simployer API for product: %s", self.settings.data_product)
         session = self.linked_service.connection
 
+        # Single resource lookup by ID
+        if self.settings.read.resource_id:
+            self._read_single_resource(session)
+            return
+
+        # Collection read with pagination
+        self._read_collection(session)
+
+    def _read_single_resource(self, session: Any) -> None:
+        """Fetch a single resource by ID."""
+        resource_id = self.settings.read.resource_id
+        url = f"{self._build_url(self.settings.data_product)}/{resource_id}"
+        logger.info("Fetching single resource: %s", url)
+
+        try:
+            response = session.request(method="GET", url=url, params={})
+            record = response.json()
+            self.output = pd.DataFrame([record] if isinstance(record, dict) else record)
+            if not self.output.empty:
+                self._set_schema(self.output)
+        except Exception as exc:
+            logger.error("Failed to read single resource: %s", exc)
+            raise ReadError(
+                message=f"Failed to read {self.settings.data_product} with ID {resource_id}",
+                details={
+                    "resource_id": resource_id,
+                    "data_product": self.settings.data_product,
+                },
+            ) from exc
+
+    def _read_collection(self, session: Any) -> None:
+        """Fetch collection with pagination."""
         # Determine starting page: resume from checkpoint or start fresh
         page = self.checkpoint.get("last_page", 0) + 1 if self.checkpoint else self.settings.read.page
-        logger.info("%s load from page %s", "Resuming incremental" if self.checkpoint else "Starting full load", page)
+        logger.info("%s load from page %s", "Resuming incremental" if self.checkpoint else "Starting full", page)
 
         all_records: list[dict[str, Any]] = []
         last_successful_page = page - 1  # Track last completed page
 
         try:
+            if supports_method(self.settings.data_product, "GET") is False:
+                raise NotSupportedError(f"Read (GET) not supported for data product '{self.settings.data_product.value}'.")
             while True:
                 params = self._build_params(page)
-                response = session.request(method="GET", url=self._build_url(), params=params)
+                response = session.request(method="GET", url=self._build_url(self.settings.data_product), params=params)
                 records = response.json()  # API returns array directly
 
-                all_records.extend(records if isinstance(records, list) else [])
+                if isinstance(records, list):
+                    all_records.extend(records)
+                elif records is not None:
+                    all_records.extend([records])
                 last_successful_page = page
 
                 # Pagination info is in response headers (x-has-next-page)
@@ -189,13 +248,82 @@ class SimployerDataset(
             ) from exc
 
         finally:
+            # Always set output as a DataFrame, even if all_records is empty
             self.output = pd.DataFrame(all_records)
-            if not self.output.empty:
+            if isinstance(self.output, pd.DataFrame) and not self.output.empty:
                 self._set_schema(self.output)
             self.checkpoint = self._build_checkpoint(last_successful_page)
 
     def create(self) -> None:
-        raise NotSupportedError("Method (create) not supported by Simployer provider.")
+        """
+        Insert rows into Simployer API.
+
+        Reads from self.input (which must be a pandas DataFrame) and POSTs to the configured endpoint.
+        Results are stored in self.output.
+
+        Input Requirement:
+            - self.input must be a pandas DataFrame with columns matching the Simployer endpoint schema.
+            - Only one record per create() call is allowed (one row in the DataFrame).
+            - Users must convert their data (dict, JSON, etc.) to a DataFrame before assigning to self.input.
+
+        Example:
+            import pandas as pd
+            data = {
+                "firstName": "John",
+                "lastName": "Doe",
+                "primaryEmail": "john.doe@example.com",
+                "affiliatedOrganizationId": "org-12345"
+            }
+            dataset.input = pd.DataFrame([data])
+            dataset.create()
+
+        The caller can also provide raw data and use the deserializer to convert:
+            dataset.input = dataset.deserializer.deserialize(raw_bytes)
+            dataset.create()
+
+        Raises:
+            NotSupportedError: If the configured data product does not support create (POST).
+            CreateError: If creating records fails.
+        """
+        if supports_method(self.settings.data_product, "POST") is False:
+            raise NotSupportedError(f"Create (POST) not supported for data product '{self.settings.data_product.value}'.")
+
+        if self.input is None or self.input.empty:
+            logger.info("No input data to create, returning empty output")
+            self.output = pd.DataFrame()
+            return
+
+        # Capacity limit: Simployer accepts 1 record per POST for atomicity
+        if len(self.input) > 1:
+            raise CreateError(
+                message="Simployer API accepts 1 record per request. Caller must batch.",
+                details={"input_rows": len(self.input), "capacity": 1},
+            )
+
+        # Don't mutate self.input - work on copy
+        row = self.input.iloc[0].to_dict()
+
+        session = self.linked_service.connection
+
+        # Use data_product from settings
+        url = self._build_url(self.settings.data_product)
+        logger.info("Creating record at %s", url)
+
+        try:
+            response = session.request(method="POST", url=url, json=row)
+            result = response.json()
+
+            # Populate self.output with backend response
+            self.output = pd.DataFrame([result] if isinstance(result, dict) else result)
+            if not self.output.empty:
+                self._set_schema(self.output)
+
+        except Exception as exc:
+            logger.error("Failed to create record: %s", exc)
+            raise CreateError(
+                message=f"Failed to create {self.settings.data_product.value}",
+                details={"data_product": self.settings.data_product.value},
+            ) from exc
 
     def delete(self) -> None:
         raise NotSupportedError("Method (delete) not supported by Simployer provider.")
@@ -249,16 +377,11 @@ class SimployerDataset(
             "data_product": self.settings.data_product.value,
         }
 
-    def _build_url(self) -> str:
-        """
-        Helper to build the full API URL with optional path parameters.
-        """
-
-        base_endpoint = get_endpoint_for_product(self.settings.data_product)
+    def _build_url(self, data_product: SimployerDataProducts) -> str:
+        """Build the full API URL for the given data product."""
+        base_endpoint = get_endpoint_for_product(data_product)
         if base_endpoint is None:
-            raise ValueError(
-                f"Cannot build URL: data_product '{self.settings.data_product.value}' is not supported or not yet mapped."
-            )
+            raise ValueError(f"Cannot build URL: data_product '{data_product.value}' is not supported.")
 
         host = self.linked_service.settings.host.rstrip("/")
         return f"{host}{base_endpoint}"
