@@ -4,7 +4,7 @@ description: Simployer provider for the DS Business Workflow
 
 linked_service:
   - name: Simployer
-    kind: DS.RESOURCE.LINKED_SERVICE.SIMPLOYER
+    type: ds.resource.linked-service.simployer
     version: 1.0.0
     description: Simployer linked service
     class_name: ds_provider_simployer_py_lib.linked_service.SimployerLinkedService

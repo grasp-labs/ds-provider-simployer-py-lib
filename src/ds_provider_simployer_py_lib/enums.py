@@ -6,7 +6,7 @@ Constants for Simployer provider.
 
 Example:
     >>> ResourceType.LINKED_SERVICE
-    'DS.RESOURCE.LINKED_SERVICE.SIMPLOYER'
+    'ds.resource.linked-service.simployer'
 """
 
 from enum import StrEnum
@@ -17,4 +17,4 @@ class ResourceType(StrEnum):
     Constants for Simployer provider.
     """
 
-    SIMPLOYER_LINKED_SERVICE = "DS.RESOURCE.LINKED_SERVICE.SIMPLOYER"
+    SIMPLOYER_LINKED_SERVICE = "ds.resource.linked-service.simployer"
