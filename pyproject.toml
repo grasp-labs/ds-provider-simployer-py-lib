@@ -12,7 +12,7 @@ dependencies = [
     "ds-protocol-http-py-lib>=0.1.0-beta.2,<1.0.0",
     "requests>=2.32.0,<3.0.0",
     ]
-requires-python = "==3.11.14"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE-APACHE"]
 keywords = ["ds", "python"]
