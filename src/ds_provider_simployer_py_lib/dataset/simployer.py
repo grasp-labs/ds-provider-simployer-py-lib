@@ -388,12 +388,19 @@ class SimployerDataset(
         if matches:
             for param_name in matches:
                 param_value = None
+                # Try input first
                 if hasattr(self, "input") and self.input is not None and not self.input.empty and param_name in self.input.columns:
                     param_value = self.input.iloc[0][param_name]
+                # Fallback to settings.resource_id
+                elif hasattr(self.settings, "resource_id") and self.settings.resource_id:
+                    param_value = self.settings.resource_id
 
                 if param_value is None:
                     raise ReadError(
                         message=(f"Cannot build URL: path parameter '{{{param_name}}}' requires a value but none was provided.")
                     )
                 endpoint = endpoint.replace(f"{{{param_name}}}", str(param_value))
+        # If no path parameter but resource_id is set, append it
+        elif hasattr(self.settings, "resource_id") and self.settings.resource_id:
+            endpoint = f"{endpoint}/{self.settings.resource_id}"
         return f"{host}{endpoint}"

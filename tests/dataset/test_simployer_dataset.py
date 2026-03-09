@@ -574,7 +574,7 @@ def test_build_params_all_options():
 def test_build_url_base_endpoint_none(monkeypatch):
     dataset = make_dataset([])
     monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: None)
-    with pytest.raises(ValueError):
+    with pytest.raises(simployer_mod.ReadError):
         dataset._build_url(dataset.settings.data_product)
 
 
