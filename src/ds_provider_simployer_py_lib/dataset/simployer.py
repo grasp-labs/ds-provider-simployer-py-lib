@@ -185,7 +185,7 @@ class SimployerDataset(
         resource_id = self.settings.resource_id
         if self.settings.data_product is None:
             raise NotSupportedError("Data product must be specified.")
-        url = f"{self._build_url(self.settings.data_product)}/{resource_id}"
+        url = f"{self._build_url(self.settings.data_product)}"
         logger.info("Fetching single resource: %s", url)
 
         try:
@@ -235,7 +235,7 @@ class SimployerDataset(
                 page += 1
 
         except Exception as exc:
-            logger.error("Failed to read resource: %s", exc)
+            logger.error("unauthorized: %s", exc)
             raise ReadError(
                 message=f"Failed to read data from Simployer API for product {self.settings.data_product} at page {page}",
                 details={
@@ -378,7 +378,7 @@ class SimployerDataset(
         """
         base_endpoint = EndpointInfo.get_endpoint_for_product(data_product)
         if base_endpoint is None:
-            raise ValueError(f"Cannot build URL: data_product '{data_product.value}' is not supported.")
+            raise ReadError(message=f"No endpoint configured for data product '{data_product!s}'.")
 
         host = self.linked_service.settings.host.rstrip("/")
 
@@ -388,14 +388,12 @@ class SimployerDataset(
         if matches:
             for param_name in matches:
                 param_value = None
-                #   First try to get the value from self.input if available
-                if hasattr(self, "input") and self.input is not None and not self.input.empty:
-                    if param_name in self.input.columns:
-                        param_value = self.input.iloc[0][param_name]
-                #  Next, try to get the value from settings.resource_id if not found in inputi
-                elif hasattr(self.settings, "resource_id") and self.settings.resource_id:
-                    param_value = self.settings.resource_id
+                if hasattr(self, "input") and self.input is not None and not self.input.empty and param_name in self.input.columns:
+                    param_value = self.input.iloc[0][param_name]
+
                 if param_value is None:
-                    raise ReadError(f"Cannot build URL: path parameter '{{{param_name}}}' requires a value but none was provided.")
+                    raise ReadError(
+                        message=(f"Cannot build URL: path parameter '{{{param_name}}}' requires a value but none was provided.")
+                    )
                 endpoint = endpoint.replace(f"{{{param_name}}}", str(param_value))
         return f"{host}{endpoint}"
