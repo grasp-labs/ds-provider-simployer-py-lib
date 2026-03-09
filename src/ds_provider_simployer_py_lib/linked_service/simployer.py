@@ -32,7 +32,7 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from ds_common_logger_py_lib import Logger
 from ds_protocol_http_py_lib import HttpLinkedService, HttpLinkedServiceSettings, enums
@@ -119,19 +119,6 @@ class SimployerLinkedService(
              ResourceType
         """
         return ResourceType.SIMPLOYER_LINKED_SERVICE
-
-    @property
-    def connection(self) -> Any:
-        """
-        Get the HTTP session for making API requests.
-
-        Returns:
-            requests.Session: The authenticated HTTP session.
-
-        Raises:
-            ConnectionError: If connect() has not been called.
-        """
-        return self.session
 
     def __post_init__(self) -> None:
         """

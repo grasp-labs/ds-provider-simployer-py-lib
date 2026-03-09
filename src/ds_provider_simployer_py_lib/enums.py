@@ -14,7 +14,6 @@ Example:
 """
 
 from enum import StrEnum
-from typing import cast
 
 
 class ResourceType(StrEnum):
@@ -29,231 +28,87 @@ class ResourceType(StrEnum):
 class SimployerDataProducts(StrEnum):
     """
     Simployer data products available through the HRConnect API.
-
-    These represent the main data categories you can query from Simployer.
-    Each product has its own endpoint at https://hrconnect.simployer.com/v1/{product_name}
-
-    Reference: https://hrconnect.simployer.com/index.html
+    Each value matches a key in the ENDPOINTS dictionary in endpoint_info.py,
+    which defines the API endpoint and supported methods for that data product.
+    The values are used in SimployerDatasetSettings to specify which data product
+    to read from or write to.
+    Example usage:
+        settings = SimployerDatasetSettings(
+            data_product=SimployerDataProducts.EMPLOYEES,
+            read=ReadSettings(page_size=100)
+        )
     """
 
-    ABSENCE = "absence"
-    """Absence records and absence types."""
-
-    ABSENCE_TYPES = "absenceTypes"
-    """Types of absences (e.g., vacation, sick leave)."""
-
-    ADDRESSES = "addresses"
-    """Addresses (paginated)."""
-
-    CONTACTS = "contacts"
-    """Contact information (addresses, electronic addresses)."""
-
-    DOCUMENTS = "documents"
-    """Person documents."""
-
-    DOCUMENTS_PERSONS = "documentsPersons"
-    """Documents for persons (paginated)."""
-
-    ELECTRONIC_ADDRESSES = "electronicAddresses"
-    """Electronic addresses (paginated)."""
-
+    ABSENCE_COMMENTS = "absence_comments"
+    ABSENCE_LOST_DAYS = "absence_lost_days"
+    ABSENCES_BY_UNIT = "absences_by_unit"
+    ABSENCE_TYPES = "absence_types"
+    CONTACT_ADDRESSES = "contact_addresses"
+    CONTACT_ADDRESS = "contact_address"
+    CONTACT_ADDRESS_UNIT = "contact_address_unit"
+    CONTACT_ELECTRONIC_ADDRESSES = "contact_electronic_addresses"
+    CONTACT_ELECTRONIC_ADDRESS = "contact_electronic_address"
+    CONTACT_ELECTRONIC_ADDRESS_UNIT = "contact_electronic_address_unit"
+    CONTACT_PHONE_NUMBERS = "contact_phone_numbers"
+    CONTACT_PHONE_NUMBER = "contact_phone_number"
+    CONTACT_PHONE_NUMBER_UNIT = "contact_phone_number_unit"
+    DOCUMENTS_PERSONS = "documents_persons"
     EMPLOYEES = "employees"
-    """Employee master data."""
-
+    EMPLOYEE = "employee"
     EMPLOYMENTS = "employments"
-    """Employment records and contracts."""
-
-    EMPLOYMENTS_CATEGORIES = "employmentsCategories"
-    """Employment categories (paginated)."""
-
-    EMPLOYMENTS_CONTRACTS = "employmentsContracts"
-    """Employment contracts (paginated)."""
-
-    EXTENDED_PROPERTY_TYPES = "extendedPropertyTypes"
-    """Extended property types and values."""
-
-    EXTENDED_PROPERTY_TYPES_VALUES = "extendedPropertyTypesValues"
-    """Extended property type values."""
-
-    LEAVE = "leave"
-    """Leave periods."""
-
-    LEAVE_PERIODS = "leavePeriods"
-    """Leave periods (paginated)."""
-
+    EMPLOYMENT = "employment"
+    EMPLOYMENT_AGREEMENT_GUID = "employment_agreement_guid"
+    EMPLOYMENT_SET_TERMINATION_CAUSE = "employment_set_termination_cause"
+    EMPLOYMENT_CATEGORIES = "employment_categories"
+    EMPLOYMENT_CATEGORY = "employment_category"
+    EMPLOYMENT_CONTRACTS = "employment_contracts"
+    EMPLOYMENT_CONTRACT = "employment_contract"
+    EMPLOYMENT_CONTRACTS_PERSON = "employment_contracts_person"
+    EMPLOYMENT_COST_CENTER_DEPARTMENT = "employment_cost_center_department"
+    EMPLOYMENT_EMPLOYEE = "employment_employee"
+    EMPLOYMENT_PERSON = "employment_person"
+    EMPLOYMENT_SALARIES = "employment_salaries"
+    EMPLOYMENT_SALARIES_EMPLOYMENT = "employment_salaries_employment"
+    EMPLOYMENT_SALARIES_PERSON = "employment_salaries_person"
+    EMPLOYMENT_TERMINATION_CAUSES = "employment_termination_causes"
+    EMPLOYMENT_TERMINATION_CAUSE = "employment_termination_cause"
+    EXTENDED_PROPERTY_TYPES = "extended_property_types"
+    EXTENDED_PROPERTY_TYPE = "extended_property_type"
+    EXTENDED_PROPERTY_TYPE_VALUES = "extended_property_type_values"
+    EXTENDED_PROPERTY_TYPE_VALUE = "extended_property_type_value"
+    LEAVE_PERIODS = "leave_periods"
     ORGANIZATIONS = "organizations"
-    """Organizations, groups, and hierarchy structure."""
-
-    ORGANIZATIONS_GROUPS = "organizationsGroups"
-    """Groups (paginated)."""
-
-    ORGANIZATIONS_GROUPS_AFFILIATED_PEOPLE = "organizationsGroupsAffiliatedPeople"
-    """Group-people relations (paginated)."""
-
-    ORGANIZATIONS_GROUPS_CATEGORIES = "organizationsGroupsCategories"
-    """Group categories (paginated)."""
-
-    ORGANIZATIONS_HIERARCHY = "organizationsHierarchy"
-    """Organization hierarchy."""
-
+    ORGANIZATION = "organization"
+    ORGANIZATION_GROUPS = "organization_groups"
+    ORGANIZATION_GROUP = "organization_group"
+    ORGANIZATION_GROUP_AFFILIATED_PEOPLE = "organization_group_affiliated_people"
+    ORGANIZATION_GROUPS_AFFILIATED_PEOPLE = "organization_groups_affiliated_people"
+    ORGANIZATION_GROUPS_CATEGORIES = "organization_groups_categories"
+    ORGANIZATION_GROUPS_CATEGORY = "organization_groups_category"
+    ORGANIZATION_GROUPS_PERSON = "organization_groups_person"
+    ORGANIZATION_HIERARCHY = "organization_hierarchy"
     PERSONS = "persons"
-    """Person records and related data (children, next of kin, manager structure)."""
-
-    PERSONS_AUDIT_LOGS = "personsAuditLogs"
-    """Audit logs for personal data."""
-
-    PERSONS_CHILDREN = "personsChildren"
-    """Children (paginated)."""
-
-    PERSONS_EXTENDED_PROPERTIES = "personsExtendedProperties"
-    """Extended properties (paginated)."""
-
-    PERSONS_IDENTITY_IDENTIFIERS = "personsIdentityIdentifiers"
-    """Identity identifiers (paginated)."""
-
-    SICK_LEAVE = "sickLeave"
-    """Sick leave periods."""
-
-    SICK_LEAVE_PERIODS = "sickLeavePeriods"
-    """Sick leave periods (paginated)."""
-
+    PERSON = "person"
+    PERSON_IDENTITY_IDENTIFIERS = "person_identity_identifiers"
+    PERSON_CHILDREN = "person_children"
+    PERSON_EXTENDED_PROPERTIES = "person_extended_properties"
+    PERSON_NEXT_OF_KIN = "person_next_of_kin"
+    PERSON_SPECIFIED_MANAGER = "person_specified_manager"
+    PERSONS_IDENTITY_IDENTIFIERS = "persons_identity_identifiers"
+    PERSONS_IDENTITY_IDENTIFIER = "persons_identity_identifier"
+    PERSONS_AUDIT_LOGS = "persons_audit_logs"
+    PERSONS_CHILDREN = "persons_children"
+    PERSONS_CHILD = "persons_child"
+    PERSONS_EXTENDED_PROPERTIES = "persons_extended_properties"
+    PERSONS_EXTENDED_PROPERTY = "persons_extended_property"
+    PERSONS_EXTENDED_PROPERTIES_TYPE = "persons_extended_properties_type"
+    PERSONS_MANAGER_STRUCTURE = "persons_manager_structure"
+    PERSONS_NEXT_OF_KIN = "persons_next_of_kin"
+    PERSONS_NEXT_OF_KIN_ID = "persons_next_of_kin_id"
+    SICK_LEAVE_PERIODS = "sick_leave_periods"
     TENANTS = "tenants"
-    """Tenant and user account information."""
-
-    TENANTS_USERS = "tenantsUsers"
-    """User accounts for a tenant (paginated)."""
-
-    VACATION = "vacation"
-    """Vacation days and vacation periods."""
-
-    VACATION_DAYS = "vacationDays"
-    """Remaining vacation days for a person for a year."""
-
-    VACATION_PERIODS = "vacationPeriods"
-    """Vacation periods (paginated)."""
-
-
-# Extended endpoint info mapping: includes URL and supported HTTP methods
-_ENDPOINT_INFO = {
-    SimployerDataProducts.ABSENCE: {"url": "/v1/absence", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.ABSENCE_TYPES: {
-        "url": "/v1/absence/absencetypes",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.ADDRESSES: {"url": "/v1/contacts/addresses", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.CONTACTS: {"url": "/v1/contacts", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.DOCUMENTS: {"url": "/v1/documents/persons", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.DOCUMENTS_PERSONS: {
-        "url": "/v1/documents/persons",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.ELECTRONIC_ADDRESSES: {
-        "url": "/v1/contacts/electronicAddresses",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.EMPLOYEES: {"url": "/v1/employees", "methods": {"GET": True, "POST": True, "DELETE": False}},
-    SimployerDataProducts.EMPLOYMENTS: {"url": "/v1/employments", "methods": {"GET": True, "POST": True, "DELETE": False}},
-    SimployerDataProducts.EMPLOYMENTS_CATEGORIES: {
-        "url": "/v1/employments/categories",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.EMPLOYMENTS_CONTRACTS: {
-        "url": "/v1/employments/contracts",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.EXTENDED_PROPERTY_TYPES: {
-        "url": "/v1/extendedPropertyTypes",
-        "methods": {"GET": True, "POST": True, "DELETE": False},
-    },
-    SimployerDataProducts.EXTENDED_PROPERTY_TYPES_VALUES: {
-        "url": "/v1/extendedPropertyTypes/values",
-        "methods": {"GET": True, "POST": True, "DELETE": False},
-    },
-    SimployerDataProducts.LEAVE: {"url": "/v1/leave", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.LEAVE_PERIODS: {
-        "url": "/v1/leave/leaveperiods",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.ORGANIZATIONS: {"url": "/v1/organizations", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.ORGANIZATIONS_GROUPS: {
-        "url": "/v1/organizations/groups",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.ORGANIZATIONS_GROUPS_AFFILIATED_PEOPLE: {
-        "url": "/v1/organizations/groups/affiliatedPeople",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.ORGANIZATIONS_GROUPS_CATEGORIES: {
-        "url": "/v1/organizations/groups/categories",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.ORGANIZATIONS_HIERARCHY: {
-        "url": "/v1/organizations/hierarchy",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.PERSONS: {"url": "/v1/persons", "methods": {"GET": True, "POST": True, "DELETE": False}},
-    SimployerDataProducts.PERSONS_AUDIT_LOGS: {
-        "url": "/v1/persons/auditLogs",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.PERSONS_CHILDREN: {
-        "url": "/v1/persons/children",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.PERSONS_EXTENDED_PROPERTIES: {
-        "url": "/v1/persons/extendedProperties",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.PERSONS_IDENTITY_IDENTIFIERS: {
-        "url": "/v1/persons/identityIdentifiers",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.SICK_LEAVE: {"url": "/v1/sickLeave", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.SICK_LEAVE_PERIODS: {
-        "url": "/v1/sickLeave/sickleaveperiods",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.TENANTS: {"url": "/v1/tenants", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.TENANTS_USERS: {"url": "/v1/tenants/users", "methods": {"GET": True, "POST": True, "DELETE": False}},
-    SimployerDataProducts.VACATION: {"url": "/v1/vacation", "methods": {"GET": True, "POST": False, "DELETE": False}},
-    SimployerDataProducts.VACATION_DAYS: {
-        "url": "/v1/vacation/vacationdays",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-    SimployerDataProducts.VACATION_PERIODS: {
-        "url": "/v1/vacation/vacationperiods",
-        "methods": {"GET": True, "POST": False, "DELETE": False},
-    },
-}
-
-
-def get_endpoint_for_product(data_product: SimployerDataProducts) -> str | None:
-    """
-    Returns the main endpoint URL for a given SimployerDataProducts value.
-    """
-    info = _ENDPOINT_INFO.get(data_product)
-    return str(info["url"]) if info else None
-
-
-def get_supported_methods_for_product(data_product: SimployerDataProducts) -> dict[str, bool] | None:
-    """
-    Returns supported HTTP methods for a given SimployerDataProducts value.
-    Example: {"GET": True, "POST": False, "DELETE": False}
-    """
-    info = _ENDPOINT_INFO.get(data_product)
-    return cast("dict[str, bool] | None", info["methods"] if info else None)
-
-
-def supports_method(data_product: SimployerDataProducts, method: str) -> bool:
-    methods = get_supported_methods_for_product(data_product)
-    return bool(methods and methods.get(method.upper()))
-
-
-def get_methods_for_product(data_product: SimployerDataProducts) -> list[str]:
-    """
-    Returns a list of supported HTTP methods for a given SimployerDataProducts value.
-    Example: ["GET", "POST", "DELETE"]
-    """
-    methods_dict = get_supported_methods_for_product(data_product)
-    methods = list(methods_dict.keys()) if methods_dict else []
-    return methods
+    TENANTS_PERSON_USERS = "tenants_person_users"
+    TENANTS_USERS = "tenants_users"
+    TENANTS_USER = "tenants_user"
+    VACATION_DAYS = "vacation_days"
+    VACATION_PERIODS = "vacation_periods"

@@ -8,8 +8,8 @@ import pytest
 from ds_resource_plugin_py_lib.common.resource.dataset.errors import CreateError, ReadError
 from ds_resource_plugin_py_lib.common.resource.errors import NotSupportedError
 
+import ds_provider_simployer_py_lib.dataset.simployer as simployer_mod
 from ds_provider_simployer_py_lib.dataset.simployer import (
-    CreateSettings,
     ReadSettings,
     SimployerDataset,
     SimployerDatasetSettings,
@@ -37,13 +37,25 @@ class DummySession:
         self.call_count = 0
         self.requests = []
 
-    def request(self, method, url, params=None, json=None):
-        self.requests.append({"method": method, "url": url, "params": params, "json": json})
-        resp = self.responses[self.call_count]
-        self.call_count += 1
-        if isinstance(resp, Exception):
-            raise resp
-        return resp
+    def get(self, url, params=None):
+        self.requests.append({"method": "GET", "url": url, "params": params})
+        if self.call_count < len(self.responses):
+            response = self.responses[self.call_count]
+            self.call_count += 1
+            if isinstance(response, Exception):
+                raise response
+            return response
+        raise ConnectionError("No more mock responses available in DummySession")
+
+    def post(self, url, json=None):
+        self.requests.append({"method": "POST", "url": url, "json": json})
+        if self.call_count < len(self.responses):
+            response = self.responses[self.call_count]
+            self.call_count += 1
+            if isinstance(response, Exception):
+                raise response
+            return response
+        raise ConnectionError("No more mock responses available in DummySession")
 
 
 class DummySimployerLinkedService(SimployerLinkedService):
@@ -70,7 +82,8 @@ def make_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES, checkp
     linked_service = make_linked_service(responses)
     settings = SimployerDatasetSettings(
         data_product=data_product,
-        read=ReadSettings(page_size=100, resource_id=resource_id),
+        resource_id=resource_id,
+        read=ReadSettings(page_size=100),
     )
     dataset = SimployerDataset(
         id=uuid4(),
@@ -274,7 +287,7 @@ def test_type_property():
 
 def test_create_raises_not_supported_for_non_post_product():
     """create() must raise NotSupportedError when data product does not support POST."""
-    dataset = make_dataset([], data_product=SimployerDataProducts.ABSENCE)
+    dataset = make_dataset([], data_product=SimployerDataProducts.ABSENCE_TYPES)
     with pytest.raises(NotSupportedError):
         dataset.create()
 
@@ -417,7 +430,7 @@ def make_create_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES)
 
     dataset_settings = SimployerDatasetSettings(
         data_product=data_product,
-        create=CreateSettings(),
+        resource_id=None,
     )
     return SimployerDataset(
         id=uuid4(),
@@ -426,19 +439,6 @@ def make_create_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES)
         linked_service=linked_service,
         settings=dataset_settings,
     )
-
-
-def test_create_settings_validates_data_product():
-    """CreateSettings raises ValueError for non-creatable products."""
-    # CreateSettings no longer validates data_product, so this test is obsolete
-    pass
-
-
-def test_create_settings_accepts_creatable_products():
-    """CreateSettings accepts products that support POST."""
-    # Should not raise
-    settings = CreateSettings()
-    assert isinstance(settings, CreateSettings)
 
 
 def test_create_empty_input_is_noop():
@@ -527,13 +527,79 @@ def test_create_wraps_exception_in_create_error():
     assert exc_info.value.__cause__ is not None
 
 
-def test_create_sets_schema():
-    """create() sets schema from output."""
-    responses = [DummyCreateResponse({"id": "1", "name": "Test", "count": 42})]
-    dataset = make_create_dataset(responses)
+def test_create_unsupported_product_raises_not_supported():
+    """create() raises NotSupportedError for unsupported data products."""
+    dataset = make_create_dataset([], data_product=SimployerDataProducts.ABSENCE_TYPES)
     dataset.input = pd.DataFrame([{"name": "Test"}])
-    dataset.create()
 
-    assert dataset.schema is not None
-    assert "id" in dataset.schema
-    assert "name" in dataset.schema
+    with pytest.raises(NotSupportedError):
+        dataset.create()
+
+
+# --- Coverage: Paginated read loop (non-list, non-None records) ---
+def test_read_handles_non_list_non_none_records():
+    responses = [DummyResponse(123, has_next_page=False)]
+    dataset = make_dataset(responses)
+    dataset.read()
+    # Should wrap 123 in a list
+    assert not dataset.output.empty
+    assert dataset.output.iloc[0, 0] == 123
+
+
+# --- Coverage: _build_params (from_date, to_date, filters) ---
+def test_build_params_all_options():
+    settings = SimployerDatasetSettings(
+        data_product=SimployerDataProducts.EMPLOYEES,
+        read=ReadSettings(
+            page_size=10,
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+            filters={"foo": "bar"},
+        ),
+    )
+    dataset = SimployerDataset(
+        id=uuid4(),
+        name="params_test",
+        version="1.0",
+        linked_service=make_linked_service([]),
+        settings=settings,
+    )
+    params = dataset._build_params(5)
+    assert params["fromDate"] == "2024-01-01"
+    assert params["toDate"] == "2024-01-31"
+    assert params["foo"] == "bar"
+
+
+# --- Coverage: _build_url (base_endpoint is None) ---
+def test_build_url_base_endpoint_none(monkeypatch):
+    dataset = make_dataset([])
+    monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: None)
+    with pytest.raises(ValueError):
+        dataset._build_url(dataset.settings.data_product)
+
+
+# --- Coverage: _build_url (path param in input, resource_id, missing) ---
+def test_build_url_path_param_from_input(monkeypatch):
+    dataset = make_dataset([])
+    monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: "/foo/{id}")
+    dataset.input = pd.DataFrame([{"id": 42}])
+    url = dataset._build_url(dataset.settings.data_product)
+    assert url.endswith("/foo/42")
+
+
+def test_build_url_path_param_from_resource_id(monkeypatch):
+    dataset = make_dataset([], resource_id="abc123")
+    monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: "/foo/{id}")
+    # No input, so should use resource_id
+    url = dataset._build_url(dataset.settings.data_product)
+    assert url.endswith("/foo/abc123")
+
+
+def test_build_url_path_param_missing(monkeypatch):
+    dataset = make_dataset([])
+    monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: "/foo/{id}")
+    # No input, no resource_id
+    dataset.settings.resource_id = None
+    dataset.input = pd.DataFrame([])
+    with pytest.raises(ReadError):
+        dataset._build_url(dataset.settings.data_product)

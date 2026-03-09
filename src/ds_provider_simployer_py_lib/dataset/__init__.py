@@ -12,6 +12,6 @@ Includes custom serializers/deserializers tailored to Simployer's API contract.
 
 """
 
-from .simployer import CreateSettings, SimployerDataset, SimployerDatasetSettings
+from .simployer import SimployerDataset, SimployerDatasetSettings
 
-__all__ = ["CreateSettings", "SimployerDataset", "SimployerDatasetSettings"]
+__all__ = ["SimployerDataset", "SimployerDatasetSettings"]
