@@ -42,6 +42,7 @@ from ds_common_serde_py_lib import Serializable
 from ds_resource_plugin_py_lib.common.resource.dataset import DatasetSettings, DatasetStorageFormatType, TabularDataset
 from ds_resource_plugin_py_lib.common.resource.dataset.errors import (
     CreateError,
+    DeleteError,
     ReadError,
 )
 from ds_resource_plugin_py_lib.common.resource.errors import NotSupportedError
@@ -67,6 +68,12 @@ class ReadSettings(Serializable):
     Note: Not all endpoints support single-record lookup (e.g., /v1/employees).
     """
 
+    resource_id: str | None = None
+    """For read operations, if set, indicates a single resource lookup by ID (e.g., /v1/persons/{id}).
+    If None, read() performs based on read settings (pagination, filters, etc.) on the collection endpoint (e.g., /v1/employees).
+    Note: Not all data products support single-record lookup.
+    """
+
     page: int = 1
     """Page number for pagination. Default is 1."""
 
@@ -89,14 +96,6 @@ class SimployerDatasetSettings(DatasetSettings):
     """Data product associated with this dataset (e.g., "employees").
 
     Used to determine the API endpoint and other settings.
-    """
-
-    resource_id: str | None = None
-    """For read operations, if set, indicates a single resource lookup by ID (e.g., /v1/persons/{id}).
-    If None, read() performs based on read settings (pagination, filters, etc.) on the collection endpoint (e.g., /v1/employees).
-    Note: Not all data products support single-record lookup.
-
-    For create operations, this is mandatory and indicates the ID of the resource to create (e.g., /v1/persons/{id}).
     """
 
     read: ReadSettings = field(default_factory=ReadSettings)
@@ -173,7 +172,7 @@ class SimployerDataset(
             raise NotSupportedError("Data product must be specified.")
 
         # Single resource lookup by ID
-        if self.settings.resource_id:
+        if self.settings.read.resource_id:
             self._read_single_resource(session)
             return
 
@@ -182,10 +181,10 @@ class SimployerDataset(
 
     def _read_single_resource(self, session: Any) -> None:
         """Fetch a single resource by ID."""
-        resource_id = self.settings.resource_id
+        resource_id = self.settings.read.resource_id
         if self.settings.data_product is None:
             raise NotSupportedError("Data product must be specified.")
-        url = f"{self._build_url(self.settings.data_product)}"
+        url = self._build_url(self.settings.data_product, mode="read")
         logger.info("Fetching single resource: %s", url)
 
         try:
@@ -305,7 +304,7 @@ class SimployerDataset(
         session = self.linked_service.connection
 
         # Use data_product from settings
-        url = self._build_url(self.settings.data_product)
+        url = self._build_url(self.settings.data_product, mode="create")
         logger.info("Creating record at %s", url)
 
         try:
@@ -322,7 +321,44 @@ class SimployerDataset(
             ) from exc
 
     def delete(self) -> None:
-        raise NotSupportedError("Method (delete) not supported by Simployer provider.")
+        """
+        Delete a specific resource by ID using path parameter.
+
+        The resource_id must be provided as a column in the input DataFrame (self.input).
+        The method extracts path parameters from self.input for URL construction.
+        Populates self.output with the deleted record if backend returns it, otherwise a copy of input.
+
+        Raises:
+            NotSupportedError: If data_product is not specified.
+            DeleteError: If deletion fails.
+        """
+        if self.input is None or self.input.empty:
+            logger.info("No input data to delete, returning empty output")
+            self.output = pd.DataFrame()
+            return
+
+        if self.settings.data_product is None:
+            raise NotSupportedError("Data product must be specified.")
+        if not EndpointInfo.supports_method(self.settings.data_product, "DELETE"):
+            raise NotSupportedError(f"Delete (DELETE) not supported for data product '{self.settings.data_product.value}'.")
+
+        url = self._build_url(self.settings.data_product, mode="delete")
+        logger.info("Deleting resource at %s", url)
+        session = self.linked_service.connection
+        try:
+            response = session.delete(url=url)
+            # If backend returns deleted record, use it; else use input
+            result = response.json() if response.content else None
+            if result:
+                self.output = pd.DataFrame([result] if isinstance(result, dict) else result)
+            else:
+                self.output = self.input.copy()
+        except Exception as exc:
+            logger.error("Failed to delete resource: %s", exc)
+            raise DeleteError(
+                message=f"Failed to delete {self.settings.data_product.value}",
+                details={"data_product": self.settings.data_product.value},
+            ) from exc
 
     def rename(self) -> None:
         raise NotSupportedError("Method (rename) not supported by Simployer provider.")
@@ -369,11 +405,11 @@ class SimployerDataset(
             "data_product": self.settings.data_product.value,
         }
 
-    def _build_url(self, data_product: SimployerDataProducts) -> str:
-        """Construct the API endpoint URL based on the data product and settings.
-        This method handles path parameters by looking for placeholders in the endpoint template and
-        replacing them with values from self.input or settings.resource_id.
+    def _build_url(self, data_product: SimployerDataProducts, mode: str = "read") -> str:
+        """Construct the API endpoint URL based on the data product and operation mode.
+        Handles path parameters for read, create, and delete operations.
         :param data_product: The SimployerDataProducts enum value indicating which API endpoint to target.
+        :param mode: Operation mode ("read", "create", "delete").
         :return: The full URL for the API request.
         """
         base_endpoint = EndpointInfo.get_endpoint_for_product(data_product)
@@ -381,26 +417,30 @@ class SimployerDataset(
             raise ReadError(message=f"No endpoint configured for data product '{data_product!s}'.")
 
         host = self.linked_service.settings.host.rstrip("/")
-
         endpoint = base_endpoint
         pattern = re.compile(r"{([^}]+)}")
         matches = pattern.findall(base_endpoint)
         if matches:
             for param_name in matches:
                 param_value = None
-                # Try input first
-                if hasattr(self, "input") and self.input is not None and not self.input.empty and param_name in self.input.columns:
-                    param_value = self.input.iloc[0][param_name]
-                # Fallback to settings.resource_id
-                elif hasattr(self.settings, "resource_id") and self.settings.resource_id:
-                    param_value = self.settings.resource_id
-
+                if mode in ("create", "delete"):
+                    if (
+                        hasattr(self, "input")
+                        and self.input is not None
+                        and not self.input.empty
+                        and param_name in self.input.columns
+                    ):
+                        param_value = self.input.iloc[0][param_name]
+                elif mode == "read" and hasattr(self.settings.read, "resource_id") and self.settings.read.resource_id:
+                    param_value = self.settings.read.resource_id
                 if param_value is None:
                     raise ReadError(
-                        message=(f"Cannot build URL: path parameter '{{{param_name}}}' requires a value but none was provided.")
+                        message=(
+                            f"Cannot build URL: path parameter '{{{param_name}}}' requires a value "
+                            f"but none was provided for mode '{mode}'."
+                        )
                     )
                 endpoint = endpoint.replace(f"{{{param_name}}}", str(param_value))
-        # If no path parameter but resource_id is set, append it
-        elif hasattr(self.settings, "resource_id") and self.settings.resource_id:
-            endpoint = f"{endpoint}/{self.settings.resource_id}"
+        elif mode == "read" and hasattr(self.settings.read, "resource_id") and self.settings.read.resource_id:
+            endpoint = f"{endpoint}/{self.settings.read.resource_id}"
         return f"{host}{endpoint}"

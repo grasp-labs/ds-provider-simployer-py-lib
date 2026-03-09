@@ -1,6 +1,6 @@
 """Unit tests for SimployerDataset."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pandas as pd
@@ -82,8 +82,7 @@ def make_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES, checkp
     linked_service = make_linked_service(responses)
     settings = SimployerDatasetSettings(
         data_product=data_product,
-        resource_id=resource_id,
-        read=ReadSettings(page_size=100),
+        read=ReadSettings(page_size=100, resource_id=resource_id),
     )
     dataset = SimployerDataset(
         id=uuid4(),
@@ -307,10 +306,20 @@ def test_upsert_raises_not_supported():
 
 
 def test_delete_raises_not_supported():
-    """delete() must raise NotSupportedError."""
-    dataset = make_dataset([])
+    """delete() must raise NotSupportedError when data_product is None and input is not empty."""
+    dataset = make_dataset([{"id": 1}])
+    dataset.input = pd.DataFrame([{"id": 1}])
+    dataset.settings.data_product = None
     with pytest.raises(NotSupportedError):
         dataset.delete()
+
+
+# Contract: delete() returns immediately on empty input
+def test_delete_noop_on_empty_input():
+    dataset = make_dataset([])
+    dataset.input = pd.DataFrame()
+    dataset.delete()
+    assert dataset.output.empty
 
 
 def test_purge_raises_not_supported():
@@ -430,7 +439,7 @@ def make_create_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES)
 
     dataset_settings = SimployerDatasetSettings(
         data_product=data_product,
-        resource_id=None,
+        read=ReadSettings(page_size=100, resource_id=None),
     )
     return SimployerDataset(
         id=uuid4(),
@@ -575,7 +584,7 @@ def test_build_url_base_endpoint_none(monkeypatch):
     dataset = make_dataset([])
     monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: None)
     with pytest.raises(simployer_mod.ReadError):
-        dataset._build_url(dataset.settings.data_product)
+        dataset._build_url(dataset.settings.data_product, mode="read")
 
 
 # --- Coverage: _build_url (path param in input, resource_id, missing) ---
@@ -583,7 +592,7 @@ def test_build_url_path_param_from_input(monkeypatch):
     dataset = make_dataset([])
     monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: "/foo/{id}")
     dataset.input = pd.DataFrame([{"id": 42}])
-    url = dataset._build_url(dataset.settings.data_product)
+    url = dataset._build_url(dataset.settings.data_product, mode="create")
     assert url.endswith("/foo/42")
 
 
@@ -591,7 +600,7 @@ def test_build_url_path_param_from_resource_id(monkeypatch):
     dataset = make_dataset([], resource_id="abc123")
     monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: "/foo/{id}")
     # No input, so should use resource_id
-    url = dataset._build_url(dataset.settings.data_product)
+    url = dataset._build_url(dataset.settings.data_product, mode="read")
     assert url.endswith("/foo/abc123")
 
 
@@ -599,7 +608,57 @@ def test_build_url_path_param_missing(monkeypatch):
     dataset = make_dataset([])
     monkeypatch.setattr(simployer_mod.EndpointInfo, "get_endpoint_for_product", lambda product: "/foo/{id}")
     # No input, no resource_id
-    dataset.settings.resource_id = None
+    dataset.settings.read.resource_id = None
     dataset.input = pd.DataFrame([])
     with pytest.raises(ReadError):
-        dataset._build_url(dataset.settings.data_product)
+        dataset._build_url(dataset.settings.data_product, mode="read")
+
+
+# --- Coverage: read() returns None after single resource ---
+def test_read_returns_none_after_single_resource():
+    responses = [DummyResponse({"id": 1, "name": "Alice"}, has_next_page=False)]
+    dataset = make_dataset(responses, data_product=SimployerDataProducts.PERSONS, resource_id="1")
+    assert dataset.read() is None
+
+
+# --- Coverage: _read_single_resource NotSupportedError ---
+def test_read_single_resource_not_supported():
+    dataset = make_dataset([], data_product=None, resource_id="1")
+    with pytest.raises(NotSupportedError):
+        dataset._read_single_resource(MagicMock())
+
+
+# --- Coverage: _read_collection NotSupportedError ---
+def test_read_collection_not_supported():
+    dataset = make_dataset([], data_product=None)
+    with pytest.raises(NotSupportedError):
+        dataset._read_collection(MagicMock())
+    # Unsupported method
+    dataset = make_dataset([], data_product=SimployerDataProducts.EMPLOYEES)
+    with patch.object(simployer_mod.EndpointInfo, "supports_method", lambda product, method: False):
+        with pytest.raises(ReadError) as exc_info:
+            dataset._read_collection(MagicMock())
+        # The cause should be NotSupportedError
+        assert isinstance(exc_info.value.__cause__, NotSupportedError)
+
+
+# --- Coverage: create() NotSupportedError ---
+def test_create_not_supported():
+    dataset = make_dataset([], data_product=None)
+    with pytest.raises(NotSupportedError):
+        dataset.create()
+
+
+# --- Coverage: delete() NotSupportedError and error handling ---
+def test_delete_not_supported():
+    dataset = make_dataset([{"id": 1}], data_product=None)
+    dataset.input = pd.DataFrame([{"id": 1}])
+    with pytest.raises(NotSupportedError):
+        dataset.delete()
+
+
+# --- Coverage: _build_checkpoint NotSupportedError ---
+def test_build_checkpoint_not_supported():
+    dataset = make_dataset([], data_product=None)
+    with pytest.raises(NotSupportedError):
+        dataset._build_checkpoint(1)
