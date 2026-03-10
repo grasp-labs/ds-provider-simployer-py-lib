@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pandas as pd
 import pytest
-from ds_resource_plugin_py_lib.common.resource.dataset.errors import CreateError, ReadError
+from ds_resource_plugin_py_lib.common.resource.dataset.errors import CreateError, DeleteError, ReadError, UpdateError
 from ds_resource_plugin_py_lib.common.resource.errors import NotSupportedError
 
 import ds_provider_simployer_py_lib.dataset.simployer as simployer_mod
@@ -49,6 +49,26 @@ class DummySession:
 
     def post(self, url, json=None):
         self.requests.append({"method": "POST", "url": url, "json": json})
+        if self.call_count < len(self.responses):
+            response = self.responses[self.call_count]
+            self.call_count += 1
+            if isinstance(response, Exception):
+                raise response
+            return response
+        raise ConnectionError("No more mock responses available in DummySession")
+
+    def delete(self, url=None):
+        self.requests.append({"method": "DELETE", "url": url})
+        if self.call_count < len(self.responses):
+            response = self.responses[self.call_count]
+            self.call_count += 1
+            if isinstance(response, Exception):
+                raise response
+            return response
+        raise ConnectionError("No more mock responses available in DummySession")
+
+    def put(self, url=None, json=None):
+        self.requests.append({"method": "PUT", "url": url, "json": json})
         if self.call_count < len(self.responses):
             response = self.responses[self.call_count]
             self.call_count += 1
@@ -293,7 +313,8 @@ def test_create_raises_not_supported_for_non_post_product():
 
 def test_update_raises_not_supported():
     """update() must raise NotSupportedError."""
-    dataset = make_dataset([])
+    dataset = make_dataset([], data_product=SimployerDataProducts.ABSENCE_TYPES)
+    dataset.input = pd.DataFrame([{"id": "no-put"}])
     with pytest.raises(NotSupportedError):
         dataset.update()
 
@@ -657,8 +678,158 @@ def test_delete_not_supported():
         dataset.delete()
 
 
-# --- Coverage: _build_checkpoint NotSupportedError ---
-def test_build_checkpoint_not_supported():
-    dataset = make_dataset([], data_product=None)
+def test_delete_successful_with_dict_result():
+    class DummyDeleteResponse:
+        def __init__(self):
+            self.content = b"x"
+
+        def json(self):
+            return {"deleted": True}
+
+    dataset = make_dataset([DummyDeleteResponse()])
+    dataset.input = pd.DataFrame([{"id": 1}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        dataset.delete()
+    assert not dataset.output.empty
+    assert dataset.output.iloc[0]["deleted"]
+
+
+# Error: delete raises DeleteError if session fails
+
+
+def test_delete_connection_error():
+    class DummySessionWithError(DummySession):
+        def delete(self, url=None):
+            raise ConnectionError("No connection")
+
+    linked_service = DummySimployerLinkedService(settings=MagicMock(), session=DummySessionWithError([]))
+    settings = SimployerDatasetSettings(data_product=SimployerDataProducts.EMPLOYEES, read=ReadSettings(page_size=100))
+    dataset = SimployerDataset(
+        id=uuid4(),
+        name="test_dataset",
+        version="1.0",
+        linked_service=linked_service,
+        settings=settings,
+    )
+    dataset.input = pd.DataFrame([{"id": 1}])
+    with (
+        patch(
+            "ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method",
+            return_value=True,
+        ),
+        pytest.raises(DeleteError),
+    ):
+        dataset.delete()
+
+
+# -----------------------------------------------------------------------------
+# Contract: update() - update rows in Simployer API
+# -----------------------------------------------------------------------------
+
+
+class DummyUpdateResponse:
+    """Mock HTTP response for PUT update operations."""
+
+    def __init__(self, json_data=None, status_code=200, content=True, text="OK"):
+        self._json = json_data
+        self.status_code = status_code
+        self.content = content
+        self.text = text
+
+    def json(self):
+        return self._json
+
+
+def make_update_dataset(responses, data_product=SimployerDataProducts.EMPLOYEES):
+    settings = MagicMock()
+    settings.host = "https://hrconnect.simployer.com"
+    session = DummySession(responses)
+    linked_service = DummySimployerLinkedService(settings=settings, session=session)
+    dataset_settings = SimployerDatasetSettings(
+        data_product=data_product,
+        read=ReadSettings(page_size=100, resource_id=None),
+    )
+    return SimployerDataset(
+        id=uuid4(),
+        name="test_dataset",
+        version="1.0",
+        linked_service=linked_service,
+        settings=dataset_settings,
+    )
+
+
+def test_update_successful():
+    updated_record = {"id": "u-123", "name": "Jane", "email": "jane@example.com"}
+    responses = [DummyUpdateResponse(updated_record, status_code=200)]
+    dataset = make_update_dataset(responses)
+    dataset.input = pd.DataFrame([{"id": "u-123", "name": "Jane", "email": "jane@example.com"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        dataset.update()
+    assert dataset.output is not None
+    assert len(dataset.output) == 1
+    assert dataset.output.iloc[0]["id"] == "u-123"
+
+
+def test_update_not_supported():
+    dataset = make_update_dataset([], data_product=None)
+    dataset.input = pd.DataFrame([{"id": "u-123"}])
     with pytest.raises(NotSupportedError):
-        dataset._build_checkpoint(1)
+        dataset.update()
+
+
+def test_update_bad_request():
+    responses = [DummyUpdateResponse(status_code=400, content=True, text="Bad Request")]
+    dataset = make_update_dataset(responses)
+    dataset.input = pd.DataFrame([{"id": "u-123"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        with pytest.raises(UpdateError) as exc_info:
+            dataset.update()
+        assert "BadRequest" in str(exc_info.value)
+
+
+def test_update_unauthorized():
+    responses = [DummyUpdateResponse(status_code=401, content=True, text="Unauthorized")]
+    dataset = make_update_dataset(responses)
+    dataset.input = pd.DataFrame([{"id": "u-123"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        with pytest.raises(UpdateError) as exc_info:
+            dataset.update()
+        assert "Unauthorized" in str(exc_info.value)
+
+
+def test_update_not_found():
+    responses = [DummyUpdateResponse(status_code=404, content=True, text="Not Found")]
+    dataset = make_update_dataset(responses)
+    dataset.input = pd.DataFrame([{"id": "u-123"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        with pytest.raises(UpdateError) as exc_info:
+            dataset.update()
+        assert "NotFound" in str(exc_info.value)
+
+
+def test_update_unexpected_status():
+    responses = [DummyUpdateResponse(status_code=500, content=True, text="Server Error")]
+    dataset = make_update_dataset(responses)
+    dataset.input = pd.DataFrame([{"id": "u-123"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        with pytest.raises(UpdateError) as exc_info:
+            dataset.update()
+        assert "Unexpected status" in str(exc_info.value)
+
+
+def test_update_empty_input_is_noop():
+    dataset = make_update_dataset([])
+    dataset.input = pd.DataFrame()
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        dataset.update()
+    assert dataset.output is not None
+    assert dataset.output.empty
+
+
+def test_update_none_input_is_noop():
+    dataset = make_update_dataset([])
+    dataset.input = None
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        dataset.update()
+    assert dataset.output is not None
+    assert dataset.output.empty

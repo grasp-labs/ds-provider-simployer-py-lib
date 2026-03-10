@@ -44,6 +44,7 @@ from ds_resource_plugin_py_lib.common.resource.dataset.errors import (
     CreateError,
     DeleteError,
     ReadError,
+    UpdateError,
 )
 from ds_resource_plugin_py_lib.common.resource.errors import NotSupportedError
 from ds_resource_plugin_py_lib.common.serde.deserialize import PandasDeserializer
@@ -322,14 +323,15 @@ class SimployerDataset(
 
     def delete(self) -> None:
         """
-        Delete a specific resource by ID using path parameter.
+        Delete the specific rows from Simployer API.
 
-        The resource_id must be provided as a column in the input DataFrame (self.input).
-        The method extracts path parameters from self.input for URL construction.
-        Populates self.output with the deleted record if backend returns it, otherwise a copy of input.
+        Removes only the rows in self.input, matched by their IDs.
+        Per contract: empty input is a no-op (returns immediately).
+        Deleting a row that does not exist is not an error.
 
         Raises:
             NotSupportedError: If data_product is not specified.
+            ConnectionError: If the connection to Simployer API fails.
             DeleteError: If deletion fails.
         """
         if self.input is None or self.input.empty:
@@ -347,7 +349,6 @@ class SimployerDataset(
         session = self.linked_service.connection
         try:
             response = session.delete(url=url)
-            # If backend returns deleted record, use it; else use input
             result = response.json() if response.content else None
             if result:
                 self.output = pd.DataFrame([result] if isinstance(result, dict) else result)
@@ -360,11 +361,63 @@ class SimployerDataset(
                 details={"data_product": self.settings.data_product.value},
             ) from exc
 
-    def rename(self) -> None:
-        raise NotSupportedError("Method (rename) not supported by Simployer provider.")
+    def update(self) -> None:
+        """
+        Update existing rows in the target.
 
-    def list(self) -> None:
-        raise NotSupportedError("Method (list) not supported by Simployer provider.")
+        Must update only the rows in self.input, matched by identity columns defined in self.settings.
+        Performs best-effort, per-row updates via individual HTTP requests. If some rows fail to update after others
+        have succeeded, the successful updates are not rolled back. In that case, an UpdateError is raised summarizing
+        the failures.
+        Must not insert new rows. If a row in self.input does not exist in the target, it must raise an error.
+        Idempotent: Yes. Updating a row to the same values has no effect.
+        """
+        if self.input is None or self.input.empty:
+            logger.info("No input data to update, returning empty output")
+            self.output = pd.DataFrame()
+            return
+
+        if self.settings.data_product is None:
+            raise NotSupportedError("Data product must be specified.")
+        if not EndpointInfo.supports_method(self.settings.data_product, "PUT"):
+            raise NotSupportedError(f"Update (PUT) not supported for data product '{self.settings.data_product.value}'.")
+
+        session = self.linked_service.connection
+        results = []
+        errors = []
+        input_df = self.input.copy()
+        status_map = {
+            404: "NotFoundError",
+            400: "BadRequest",
+            401: "Unauthorized",
+        }
+        for idx, row in input_df.iterrows():
+            row_dict = row.to_dict()
+            try:
+                url = self._build_url(self.settings.data_product, mode="update")
+                logger.info(f"Updating resource at {url}")
+                response = session.put(url=url, json=row_dict)
+                status = response.status_code
+                if status in status_map:
+                    errors.append({"row": row_dict, "error": status_map[status], "detail": response.text})
+                elif status in (200, 201, 204):
+                    if response.content:
+                        try:
+                            result = response.json()
+                        except ValueError:
+                            logger.warning(f"Non-JSON response for successful update of row {idx}: {response.text}")
+                        else:
+                            results.append(result)
+                else:
+                    errors.append({"row": row_dict, "error": f"Unexpected status {status}", "detail": response.text})
+            except Exception as exc:
+                logger.error(f"Failed to update row {idx}: {exc}")
+                errors.append({"row": row_dict, "error": str(exc)})
+
+        if errors:
+            logger.error("Update failed for %d row(s). Errors: %s", len(errors), errors)
+            raise UpdateError(f"Update failed for {len(errors)} row(s). See logs for details. Errors: {errors}")
+        self.output = pd.DataFrame(results) if results else pd.DataFrame()
 
     def close(self) -> None:
         """Release any resources held by the dataset.
@@ -373,8 +426,11 @@ class SimployerDataset(
         Connection lifecycle is managed by the linked service.
         """
 
-    def update(self) -> None:
-        raise NotSupportedError("Method (update) not supported by Simployer provider.")
+    def rename(self) -> None:
+        raise NotSupportedError("Method (rename) not supported by Simployer provider.")
+
+    def list(self) -> None:
+        raise NotSupportedError("Method (list) not supported by Simployer provider.")
 
     def upsert(self) -> None:
         raise NotSupportedError("Method (upsert) not supported by Simployer provider.")
@@ -423,7 +479,7 @@ class SimployerDataset(
         if matches:
             for param_name in matches:
                 param_value = None
-                if mode in ("create", "delete"):
+                if mode in ("create", "delete", "update"):
                     if (
                         hasattr(self, "input")
                         and self.input is not None
