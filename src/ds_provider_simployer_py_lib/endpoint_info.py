@@ -24,6 +24,10 @@ class EndpointInfo:
     def get_endpoint_for_product(data_product: SimployerDataProducts) -> str | None:
         """
         Returns the endpoint URL for a given SimployerDataProducts value.
+        If the data product is not found, returns None.
+
+        :param data_product: The SimployerDataProducts enum value for which to retrieve the endpoint URL.
+        :return: The endpoint URL as a string if found, otherwise None.
         """
         info = ENDPOINTS.get(data_product.value)
         return str(info.url) if info else None
@@ -32,6 +36,10 @@ class EndpointInfo:
     def supports_method(data_product: SimployerDataProducts, method: str) -> bool:
         """
         Returns True if the given HTTP method is supported for the specified SimployerDataProducts value, False otherwise.
+        If the data product is not found, returns False.
+        :param data_product: The SimployerDataProducts enum value for which to check method support.
+        :param method: The HTTP method to check (e.g., "GET", "POST", "PUT", "DELETE").
+        :return: True if the method is supported for the data product, False otherwise.
         """
         info = ENDPOINTS.get(data_product.value)
         return method.upper() in info.methods if info else False

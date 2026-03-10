@@ -203,8 +203,11 @@ class SimployerDataset(
             ) from exc
 
     def _read_collection(self, session: Any) -> None:
-        """Fetch collection with pagination."""
-        # Determine starting page: resume from checkpoint or start fresh
+        """Fetch collection with pagination and update checkpoint with max 'updated' value."""
+        # If checkpoint has from_date, set it in settings for incremental load
+        if self.checkpoint and "from_date" in self.checkpoint:
+            self.settings.read.from_date = self.checkpoint["from_date"]
+
         page = self.checkpoint.get("last_page", 0) + 1 if self.checkpoint else self.settings.read.page
         logger.info("%s load from page %s", "Resuming incremental" if self.checkpoint else "Starting full", page)
 
@@ -366,9 +369,13 @@ class SimployerDataset(
         Update existing rows in the target.
 
         Must update only the rows in self.input, matched by identity columns defined in self.settings.
-        Performs best-effort, per-row updates via individual HTTP requests. If some rows fail to update after others
-        have succeeded, the successful updates are not rolled back. In that case, an UpdateError is raised summarizing
-        the failures.
+
+        **Atomicity Limitation:**
+        Simployer does not guarantee atomicity for multi-row updates. Updates are performed per row via individual HTTP requests.
+        If some rows fail to update after others have succeeded, the successful updates are not rolled back.
+        In that case, an UpdateError is raised summarizing the failures.
+        This is a limitation of the Simployer API and is explicitly documented for contract compliance.
+
         Must not insert new rows. If a row in self.input does not exist in the target, it must raise an error.
         Idempotent: Yes. Updating a row to the same values has no effect.
         """
@@ -450,22 +457,34 @@ class SimployerDataset(
         return params
 
     def _build_checkpoint(self, last_page: int) -> dict[str, Any]:
-        """Build checkpoint dictionary for incremental load support."""
+        """Build checkpoint dictionary for incremental load support.
+        Sets from_date to max 'updated' value in self.output if available."""
         if self.settings.data_product is None:
             raise NotSupportedError("Data product must be specified.")
-        return {
+        checkpoint = {
             "last_page": last_page,
             "page_size": self.settings.read.page_size,
-            "from_date": self.settings.read.from_date,
             "to_date": self.settings.read.to_date,
             "data_product": self.settings.data_product.value,
+            "from_date": None,
         }
+        # Set from_date from max 'updated' in self.output if available
+        if (
+            hasattr(self, "output")
+            and isinstance(self.output, pd.DataFrame)
+            and not self.output.empty
+            and "updated" in self.output.columns
+        ):
+            updated_values = self.output["updated"].dropna()
+            if not updated_values.empty:
+                checkpoint["from_date"] = updated_values.max()
+        return checkpoint
 
     def _build_url(self, data_product: SimployerDataProducts, mode: str = "read") -> str:
         """Construct the API endpoint URL based on the data product and operation mode.
-        Handles path parameters for read, create, and delete operations.
+        Handles path parameters for read, create,  update, and delete operations.
         :param data_product: The SimployerDataProducts enum value indicating which API endpoint to target.
-        :param mode: Operation mode ("read", "create", "delete").
+        :param mode: Operation mode ("read", "create", "update", "delete").
         :return: The full URL for the API request.
         """
         base_endpoint = EndpointInfo.get_endpoint_for_product(data_product)
