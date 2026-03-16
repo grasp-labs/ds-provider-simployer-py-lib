@@ -6,7 +6,7 @@ Constants for Simployer provider.
 
 Example:
     >>> ResourceType.SIMPLOYER_LINKED_SERVICE
-    'ds.resource.linked_service.simployer'
+    'ds.resource.linked-service.simployer'
     >>> ResourceType.SIMPLOYER_DATASET
     'ds.resource.dataset.simployer'
     >>> SimployerDataProducts.EMPLOYEES
@@ -21,7 +21,7 @@ class ResourceType(StrEnum):
     Constants for Simployer provider.
     """
 
-    SIMPLOYER_LINKED_SERVICE = "ds.resource.linked_service.simployer"
+    SIMPLOYER_LINKED_SERVICE = "ds.resource.linked-service.simployer"
     SIMPLOYER_DATASET = "ds.resource.dataset.simployer"
 
 
