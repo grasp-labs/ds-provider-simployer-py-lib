@@ -124,16 +124,22 @@ class SimployerLinkedService(
         """
         Post-init method to set up the linked service.
 
+        If self.settings.custom is None and auth_type is CUSTOM, populates custom with
+        default OAuth2 client credentials settings. This allows callers to preconfigure
+        custom auth settings or subclasses to override the behavior.
+
         Returns:
             None
         """
         super().__post_init__()
-        self.settings.custom = CustomAuthSettings(
-            token_endpoint=self.settings.token_endpoint,
-            data={
-                "client_id": self.settings.client_id,
-                "client_secret": self.settings.client_secret,
-                "audience": self.settings.audience,
-                "grant_type": "client_credentials",
-            },
-        )
+        # Only populate custom if it is None, preserving user-provided configuration
+        if self.settings.custom is None:
+            self.settings.custom = CustomAuthSettings(
+                token_endpoint=self.settings.token_endpoint,
+                data={
+                    "client_id": self.settings.client_id,
+                    "client_secret": self.settings.client_secret,
+                    "audience": self.settings.audience,
+                    "grant_type": "client_credentials",
+                },
+            )

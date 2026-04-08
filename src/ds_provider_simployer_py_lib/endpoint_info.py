@@ -128,11 +128,7 @@ ENDPOINTS = {
         name="Employees",
         url="/v1/employees",
         methods=["GET", "POST"],
-        description=(
-            "GET: Retrieves employment by ID. "
-            "PUT: Updates an existing employment. "
-            "DELETE: Deletes an employment with the specified identifier."
-        ),
+        description=("GET: Retrieves employees with pagination. POST: Creates a new employee."),
     ),
     "employee": EndpointInfo(
         name="Employee",
@@ -144,11 +140,7 @@ ENDPOINTS = {
         name="Employments",
         url="/v1/employments",
         methods=["GET", "POST"],
-        description=(
-            "GET: Retrieves extended property type by ID. "
-            "PUT: Updates extended property type. "
-            "DELETE: Deletes extended property type."
-        ),
+        description=("GET: Retrieves employments with pagination. POST: Creates a new employment."),
     ),
     "employment": EndpointInfo(
         name="Employment",
@@ -355,49 +347,37 @@ ENDPOINTS = {
             "GET: Retrieves person by ID. PATCH: Updates an existing person. DELETE: Deletes a person (must be deactivated first)."
         ),
     ),
-    "person_identity_identifiers_post": EndpointInfo(
-        name="Create Identity Identifier for Person",
+    "person_identity_identifiers": EndpointInfo(
+        name="Identity Identifiers for Person",
         url="/v1/persons/{id}/identityIdentifiers",
-        methods=["POST"],
-        description="Creates a new identity identifier for a person.",
+        methods=["GET", "POST"],
+        description="GET: Retrieves identity identifiers for given person. POST: Creates a new identity identifier for a person.",
     ),
-    "person_identity_identifiers_get": EndpointInfo(
-        name="Get Identity Identifiers for Person",
-        url="/v1/persons/{id}/identityIdentifiers",
-        methods=["GET"],
-        description="Retrieves identity identifiers for given person.",
-    ),
-    "person_children_get": EndpointInfo(
-        name="Get Children for Person",
+    "person_children": EndpointInfo(
+        name="Children for Person",
         url="/v1/persons/{id}/children",
         methods=["GET", "POST"],
         description="GET: Retrieves children for person. POST: Creates a new child for a person.",
     ),
-    "person_extended_properties_get": EndpointInfo(
-        name="Get Extended Properties for Person",
+    "person_extended_properties": EndpointInfo(
+        name="Extended Properties for Person",
         url="/v1/persons/{id}/extendedProperties",
         methods=["GET", "POST"],
         description="GET: Retrieves extended properties for person. POST: Creates a new extended property for a person.",
     ),
-    "person_next_of_kin_get": EndpointInfo(
-        name="Get Next of Kin for Person",
+    "person_next_of_kin": EndpointInfo(
+        name="Next of Kin for Person",
         url="/v1/persons/{id}/nextOfKin",
         methods=["GET", "POST"],
         description="GET: Retrieves next of kin for person. POST: Creates a new next of kin for a person.",
     ),
-    "person_specified_manager_put": EndpointInfo(
-        name="Override Specified Manager for Person",
+    "person_specified_manager": EndpointInfo(
+        name="Specified Manager for Person",
         url="/v1/persons/{id}/specifiedManager",
-        methods=["PUT"],
-        description="Overrides the default manager assigned at the organization level with a specified manager for a person.",
-    ),
-    "person_specified_manager_delete": EndpointInfo(
-        name="Remove Specified Manager Override for Person",
-        url="/v1/persons/{id}/specifiedManager",
-        methods=["DELETE"],
+        methods=["PUT", "DELETE"],
         description=(
-            "Removes the specified manager override for a person, "
-            "reverting to the default manager assigned at the organization level."
+            "PUT: Overrides the default manager assigned at the organization level. "
+            "DELETE: Removes the specified manager override, reverting to the default manager."
         ),
     ),
     "persons_identity_identifiers": EndpointInfo(

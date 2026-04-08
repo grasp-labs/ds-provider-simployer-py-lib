@@ -784,7 +784,7 @@ def test_update_bad_request():
     with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
         with pytest.raises(UpdateError) as exc_info:
             dataset.update()
-        assert "BadRequest" in str(exc_info.value)
+        assert exc_info.value.details["error"] == "BadRequest"
 
 
 def test_update_unauthorized():
@@ -794,7 +794,7 @@ def test_update_unauthorized():
     with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
         with pytest.raises(UpdateError) as exc_info:
             dataset.update()
-        assert "Unauthorized" in str(exc_info.value)
+        assert exc_info.value.details["error"] == "Unauthorized"
 
 
 def test_update_not_found():
@@ -804,7 +804,7 @@ def test_update_not_found():
     with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
         with pytest.raises(UpdateError) as exc_info:
             dataset.update()
-        assert "NotFound" in str(exc_info.value)
+        assert exc_info.value.details["error"] == "NotFoundError"
 
 
 def test_update_unexpected_status():
@@ -814,7 +814,7 @@ def test_update_unexpected_status():
     with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
         with pytest.raises(UpdateError) as exc_info:
             dataset.update()
-        assert "Unexpected status" in str(exc_info.value)
+        assert exc_info.value.details["status"] == 500
 
 
 def test_update_empty_input_is_noop():
@@ -833,3 +833,76 @@ def test_update_none_input_is_noop():
         dataset.update()
     assert dataset.output is not None
     assert dataset.output.empty
+
+
+def test_delete_capacity_limit_raises_error():
+    """delete() must raise DeleteError when input exceeds 1 row."""
+    dataset = make_dataset([])
+    dataset.input = pd.DataFrame([{"id": "1"}, {"id": "2"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        with pytest.raises(DeleteError) as exc_info:
+            dataset.delete()
+        assert exc_info.value.details["input_rows"] == 2
+        assert exc_info.value.details["capacity"] == 1
+        assert "Caller must batch" in exc_info.value.message
+
+
+def test_update_capacity_limit_raises_error():
+    """update() must raise UpdateError when input exceeds 1 row."""
+    dataset = make_update_dataset([])
+    dataset.input = pd.DataFrame([{"id": "1"}, {"id": "2"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        with pytest.raises(UpdateError) as exc_info:
+            dataset.update()
+        assert exc_info.value.details["input_rows"] == 2
+        assert exc_info.value.details["capacity"] == 1
+        assert "Caller must batch" in exc_info.value.message
+
+
+def test_update_no_content_response():
+    """update() handles 204 No Content response by using input copy."""
+    responses = [DummyUpdateResponse(status_code=204, content=False)]
+    dataset = make_update_dataset(responses)
+    dataset.input = pd.DataFrame([{"id": "u-123", "name": "Updated"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        dataset.update()
+    assert dataset.output is not None
+    assert len(dataset.output) == 1
+    assert dataset.output.iloc[0]["id"] == "u-123"
+
+
+def test_update_invalid_json_response():
+    """update() handles non-JSON response by using input copy."""
+
+    class DummyInvalidJsonResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.content = b"x"
+            self.text = "Invalid JSON"
+
+        def json(self):
+            raise ValueError("Not JSON")
+
+    responses = [DummyInvalidJsonResponse()]
+    dataset = make_update_dataset(responses)
+    dataset.input = pd.DataFrame([{"id": "u-456", "name": "Jane"}])
+    with patch("ds_provider_simployer_py_lib.dataset.simployer.EndpointInfo.supports_method", return_value=True):
+        dataset.update()
+    assert dataset.output is not None
+    assert len(dataset.output) == 1
+    assert dataset.output.iloc[0]["id"] == "u-456"
+
+
+def test_checkpoint_with_timestamp():
+    """Checkpoint from_date is converted to ISO-8601 string when timestamp present."""
+    responses = [
+        DummyResponse([{"id": 1, "name": "Alice", "updated": "2024-01-15T10:30:00"}], has_next_page=False),
+    ]
+    dataset = make_dataset(responses)
+    dataset.read()
+
+    # Checkpoint should have from_date as ISO-8601 string, not pandas.Timestamp
+    assert dataset.checkpoint["from_date"] is None or isinstance(dataset.checkpoint["from_date"], str)
+    if dataset.checkpoint["from_date"]:
+        # Verify it's ISO-8601 format
+        assert "T" in dataset.checkpoint["from_date"] or "-" in dataset.checkpoint["from_date"]

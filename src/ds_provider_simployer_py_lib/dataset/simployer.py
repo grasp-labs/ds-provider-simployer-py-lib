@@ -326,16 +326,33 @@ class SimployerDataset(
 
     def delete(self) -> None:
         """
-        Delete the specific rows from Simployer API.
+        Delete rows from Simployer API.
 
-        Removes only the rows in self.input, matched by their IDs.
-        Per contract: empty input is a no-op (returns immediately).
-        Deleting a row that does not exist is not an error.
+        Reads from self.input (which must be a pandas DataFrame) and issues a DELETE to the configured endpoint.
+        Results are stored in self.output.
+
+        Capacity Limit:
+            The Simployer API accepts only 1 record per DELETE request.
+            If self.input contains more than 1 row, this method raises DeleteError.
+            The caller must batch: split self.input into single-row chunks and call delete() once per chunk.
+
+        Input Requirement:
+            - self.input must be a pandas DataFrame.
+            - Only one record per delete() call is allowed (one row in the DataFrame).
+            - Users must convert their data (dict, JSON, etc.) to a DataFrame before assigning to self.input.
+
+        Example:
+            import pandas as pd
+            dataset.input = pd.DataFrame([{"id": "12345"}])
+            dataset.delete()
+
+        Per contract:
+            - Empty input is a no-op (returns immediately without contacting the backend).
+            - Deleting a row that does not exist is not an error and is idempotent.
 
         Raises:
-            NotSupportedError: If data_product is not specified.
-            ConnectionError: If the connection to Simployer API fails.
-            DeleteError: If deletion fails.
+            NotSupportedError: If the configured data product does not support delete (DELETE).
+            DeleteError: If the input exceeds capacity (more than 1 row) or if deletion fails.
         """
         if self.input is None or self.input.empty:
             logger.info("No input data to delete, returning empty output")
@@ -346,6 +363,13 @@ class SimployerDataset(
             raise NotSupportedError("Data product must be specified.")
         if not EndpointInfo.supports_method(self.settings.data_product, "DELETE"):
             raise NotSupportedError(f"Delete (DELETE) not supported for data product '{self.settings.data_product.value}'.")
+
+        # Capacity limit: Simployer accepts 1 record per DELETE for atomicity
+        if len(self.input) > 1:
+            raise DeleteError(
+                message="Simployer API accepts 1 record per request. Caller must batch.",
+                details={"input_rows": len(self.input), "capacity": 1},
+            )
 
         url = self._build_url(self.settings.data_product, mode="delete")
         logger.info("Deleting resource at %s", url)
@@ -366,18 +390,34 @@ class SimployerDataset(
 
     def update(self) -> None:
         """
-        Update existing rows in the target.
+        Update an existing row in Simployer API.
 
-        Must update only the rows in self.input, matched by identity columns defined in self.settings.
+        Reads from self.input (which must be a pandas DataFrame) and PUTs to the configured endpoint.
+        Results are stored in self.output.
 
-        **Atomicity Limitation:**
-        Simployer does not guarantee atomicity for multi-row updates. Updates are performed per row via individual HTTP requests.
-        If some rows fail to update after others have succeeded, the successful updates are not rolled back.
-        In that case, an UpdateError is raised summarizing the failures.
-        This is a limitation of the Simployer API and is explicitly documented for contract compliance.
+        Capacity Limit:
+            The Simployer API accepts only 1 record per PUT request.
+            If self.input contains more than 1 row, this method raises UpdateError.
+            The caller must batch: split self.input into single-row chunks and call update() once per chunk.
 
-        Must not insert new rows. If a row in self.input does not exist in the target, it must raise an error.
-        Idempotent: Yes. Updating a row to the same values has no effect.
+        Input Requirement:
+            - self.input must be a pandas DataFrame with one row.
+            - Only one record per update() call is allowed (one row in the DataFrame).
+            - Users must convert their data (dict, JSON, etc.) to a DataFrame before assigning to self.input.
+
+        Example:
+            import pandas as pd
+            dataset.input = pd.DataFrame([{"id": "12345", "status": "active"}])
+            dataset.update()
+
+        Per contract:
+            - Empty input is a no-op (returns immediately without contacting the backend).
+            - Must not insert new rows (non-existent resources result in an error).
+            - Idempotent: Yes. Updating a row to the same values has no effect.
+
+        Raises:
+            NotSupportedError: If the configured data product does not support update (PUT).
+            UpdateError: If the input exceeds capacity (more than 1 row) or if the update fails.
         """
         if self.input is None or self.input.empty:
             logger.info("No input data to update, returning empty output")
@@ -389,42 +429,57 @@ class SimployerDataset(
         if not EndpointInfo.supports_method(self.settings.data_product, "PUT"):
             raise NotSupportedError(f"Update (PUT) not supported for data product '{self.settings.data_product.value}'.")
 
-        session = self.linked_service.connection
-        results = []
-        errors = []
-        input_df = self.input.copy()
-        status_map = {
-            404: "NotFoundError",
-            400: "BadRequest",
-            401: "Unauthorized",
-        }
-        for idx, row in input_df.iterrows():
-            row_dict = row.to_dict()
-            try:
-                url = self._build_url(self.settings.data_product, mode="update")
-                logger.info(f"Updating resource at {url}")
-                response = session.put(url=url, json=row_dict)
-                status = response.status_code
-                if status in status_map:
-                    errors.append({"row": row_dict, "error": status_map[status], "detail": response.text})
-                elif status in (200, 201, 204):
-                    if response.content:
-                        try:
-                            result = response.json()
-                        except ValueError:
-                            logger.warning(f"Non-JSON response for successful update of row {idx}: {response.text}")
-                        else:
-                            results.append(result)
-                else:
-                    errors.append({"row": row_dict, "error": f"Unexpected status {status}", "detail": response.text})
-            except Exception as exc:
-                logger.error(f"Failed to update row {idx}: {exc}")
-                errors.append({"row": row_dict, "error": str(exc)})
+        # Capacity limit: Simployer accepts 1 record per PUT for atomicity
+        if len(self.input) > 1:
+            raise UpdateError(
+                message="Simployer API accepts 1 record per request. Caller must batch.",
+                details={"input_rows": len(self.input), "capacity": 1},
+            )
 
-        if errors:
-            logger.error("Update failed for %d row(s). Errors: %s", len(errors), errors)
-            raise UpdateError(f"Update failed for {len(errors)} row(s). See logs for details. Errors: {errors}")
-        self.output = pd.DataFrame(results) if results else pd.DataFrame()
+        # Don't mutate self.input - work on copy
+        row = self.input.iloc[0].to_dict()
+
+        session = self.linked_service.connection
+        url = self._build_url(self.settings.data_product, mode="update")
+        logger.info("Updating resource at %s", url)
+
+        try:
+            response = session.put(url=url, json=row)
+            status = response.status_code
+            status_map = {
+                404: "NotFoundError",
+                400: "BadRequest",
+                401: "Unauthorized",
+            }
+
+            if status in status_map:
+                raise UpdateError(
+                    message=f"Failed to update {self.settings.data_product.value}",
+                    details={"status": status, "error": status_map[status], "detail": response.text},
+                )
+            elif status in (200, 201, 204):
+                if response.content:
+                    try:
+                        result = response.json()
+                        self.output = pd.DataFrame([result] if isinstance(result, dict) else result)
+                    except ValueError:
+                        logger.warning("Non-JSON response for successful update: %s", response.text)
+                        self.output = self.input.copy()
+                else:
+                    self.output = self.input.copy()
+            else:
+                raise UpdateError(
+                    message=f"Failed to update {self.settings.data_product.value}",
+                    details={"status": status, "detail": response.text},
+                )
+        except UpdateError:
+            raise
+        except Exception as exc:
+            logger.error("Failed to update resource: %s", exc)
+            raise UpdateError(
+                message=f"Failed to update {self.settings.data_product.value}",
+                details={"data_product": self.settings.data_product.value},
+            ) from exc
 
     def close(self) -> None:
         """Release any resources held by the dataset.
@@ -458,7 +513,19 @@ class SimployerDataset(
 
     def _build_checkpoint(self, last_page: int) -> dict[str, Any]:
         """Build checkpoint dictionary for incremental load support.
-        Sets from_date to max 'updated' value in self.output if available."""
+
+        Sets from_date to the ISO-8601 string representation of the maximum 'updated'
+        value in self.output if available. This ensures the checkpoint is JSON-serializable.
+
+        Checkpoint structure:
+            {
+                "last_page": int,
+                "page_size": int,
+                "to_date": str | None (ISO-8601 format),
+                "from_date": str | None (ISO-8601 format),
+                "data_product": str
+            }
+        """
         if self.settings.data_product is None:
             raise NotSupportedError("Data product must be specified.")
         checkpoint = {
@@ -477,19 +544,39 @@ class SimployerDataset(
         ):
             updated_values = self.output["updated"].dropna()
             if not updated_values.empty:
-                checkpoint["from_date"] = updated_values.max()
+                max_updated = updated_values.max()
+                # Convert pandas.Timestamp to ISO-8601 string for JSON serialization
+                # (if it's already a string, use it as-is)
+                if pd.notna(max_updated):
+                    if isinstance(max_updated, str):
+                        checkpoint["from_date"] = max_updated
+                    else:
+                        checkpoint["from_date"] = max_updated.isoformat()
         return checkpoint
 
     def _build_url(self, data_product: SimployerDataProducts, mode: str = "read") -> str:
         """Construct the API endpoint URL based on the data product and operation mode.
-        Handles path parameters for read, create,  update, and delete operations.
+        Handles path parameters for read, create, update, and delete operations.
         :param data_product: The SimployerDataProducts enum value indicating which API endpoint to target.
         :param mode: Operation mode ("read", "create", "update", "delete").
         :return: The full URL for the API request.
+        :raises ReadError: If mode is "read" and endpoint is missing or parameter cannot be resolved.
+        :raises CreateError: If mode is "create" and endpoint is missing or parameter cannot be resolved.
+        :raises UpdateError: If mode is "update" and endpoint is missing or parameter cannot be resolved.
+        :raises DeleteError: If mode is "delete" and endpoint is missing or parameter cannot be resolved.
         """
+        # Map mode to the appropriate error class
+        error_map = {
+            "read": ReadError,
+            "create": CreateError,
+            "update": UpdateError,
+            "delete": DeleteError,
+        }
+        error_class = error_map.get(mode, ReadError)
+
         base_endpoint = EndpointInfo.get_endpoint_for_product(data_product)
         if base_endpoint is None:
-            raise ReadError(message=f"No endpoint configured for data product '{data_product!s}'.")
+            raise error_class(message=f"No endpoint configured for data product '{data_product!s}'.")
 
         host = self.linked_service.settings.host.rstrip("/")
         endpoint = base_endpoint
@@ -509,7 +596,7 @@ class SimployerDataset(
                 elif mode == "read" and hasattr(self.settings.read, "resource_id") and self.settings.read.resource_id:
                     param_value = self.settings.read.resource_id
                 if param_value is None:
-                    raise ReadError(
+                    raise error_class(
                         message=(
                             f"Cannot build URL: path parameter '{{{param_name}}}' requires a value "
                             f"but none was provided for mode '{mode}'."
