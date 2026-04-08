@@ -238,7 +238,7 @@ class SimployerDataset(
                 page += 1
 
         except Exception as exc:
-            logger.error("unauthorized: %s", exc)
+            logger.error("Failed to read data from Simployer API: %s", exc)
             raise ReadError(
                 message=f"Failed to read data from Simployer API for product {self.settings.data_product} at page {page}",
                 details={
