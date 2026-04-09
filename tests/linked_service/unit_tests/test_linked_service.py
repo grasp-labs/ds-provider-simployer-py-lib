@@ -9,6 +9,8 @@ This module contains unit tests for the SimployerLinkedService class and its con
 
 from uuid import uuid4
 
+from ds_protocol_http_py_lib.linked_service import CustomAuthSettings
+
 from ds_provider_simployer_py_lib.linked_service import (
     SimployerLinkedService,
     SimployerLinkedServiceSettings,
@@ -46,3 +48,20 @@ def test_post_init_configures_custom_auth():
     assert service.settings.custom.data["client_secret"] == service.settings.client_secret
     assert service.settings.custom.data["audience"] == service.settings.audience
     assert service.settings.custom.data["grant_type"] == "client_credentials"
+
+
+def test_post_init_preserves_user_custom_settings():
+    """Test that __post_init__ does not overwrite user-provided custom settings."""
+    user_custom = CustomAuthSettings(token_endpoint="https://custom.endpoint", data={"key": "value"})
+    settings = SimployerLinkedServiceSettings(
+        client_id="id",
+        client_secret="secret",
+        host="https://example.com",
+        custom=user_custom,
+    )
+    service = SimployerLinkedService(settings=settings, id=uuid4(), name="test", version="1.0.0", description="desc")
+
+    # Verify user-provided custom settings were preserved
+    assert service.settings.custom is user_custom
+    assert service.settings.custom.token_endpoint == "https://custom.endpoint"
+    assert service.settings.custom.data == {"key": "value"}
